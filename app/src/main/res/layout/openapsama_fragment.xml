@@ -67,7 +67,7 @@
             android:layout_marginTop="5dp"
             android:layout_marginRight="20dp"
             android:layout_marginBottom="5dp"
-            android:background="@color/listdelimiter" />
+            android:background="@color/list_delimiter" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -85,6 +85,15 @@
                 android:textSize="14sp" />
 
         </LinearLayout>
+
+        <View
+            android:layout_width="fill_parent"
+            android:layout_height="2dip"
+            android:layout_marginLeft="20dp"
+            android:layout_marginTop="5dp"
+            android:layout_marginRight="20dp"
+            android:layout_marginBottom="5dp"
+            android:background="@color/list_delimiter" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -129,7 +138,7 @@
             android:layout_marginTop="5dp"
             android:layout_marginRight="20dp"
             android:layout_marginBottom="5dp"
-            android:background="@color/listdelimiter" />
+            android:background="@color/list_delimiter" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -174,7 +183,7 @@
             android:layout_marginTop="5dp"
             android:layout_marginRight="20dp"
             android:layout_marginBottom="5dp"
-            android:background="@color/listdelimiter" />
+            android:background="@color/list_delimiter" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -219,7 +228,7 @@
             android:layout_marginTop="5dp"
             android:layout_marginRight="20dp"
             android:layout_marginBottom="5dp"
-            android:background="@color/listdelimiter" />
+            android:background="@color/list_delimiter" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -264,7 +273,7 @@
             android:layout_marginTop="5dp"
             android:layout_marginRight="20dp"
             android:layout_marginBottom="5dp"
-            android:background="@color/listdelimiter" />
+            android:background="@color/list_delimiter" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -309,7 +318,7 @@
             android:layout_marginTop="5dp"
             android:layout_marginRight="20dp"
             android:layout_marginBottom="5dp"
-            android:background="@color/listdelimiter" />
+            android:background="@color/list_delimiter" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -354,7 +363,7 @@
             android:layout_marginTop="5dp"
             android:layout_marginRight="20dp"
             android:layout_marginBottom="5dp"
-            android:background="@color/listdelimiter" />
+            android:background="@color/list_delimiter" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -399,7 +408,7 @@
             android:layout_marginTop="5dp"
             android:layout_marginRight="20dp"
             android:layout_marginBottom="5dp"
-            android:background="@color/listdelimiter" />
+            android:background="@color/list_delimiter" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -420,12 +429,21 @@
 
         <View
             android:layout_width="fill_parent"
+            android:layout_height="2dip"
+            android:layout_marginLeft="20dp"
+            android:layout_marginTop="5dp"
+            android:layout_marginRight="20dp"
+            android:layout_marginBottom="5dp"
+            android:background="@color/list_delimiter" />
+
+        <View
+            android:layout_width="fill_parent"
             android:layout_height="0dip"
             android:layout_marginLeft="20dp"
             android:layout_marginTop="5dp"
             android:layout_marginRight="20dp"
             android:layout_marginBottom="5dp"
-            android:background="@color/listdelimiter" />
+            android:background="@color/list_delimiter" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -470,7 +488,7 @@
             android:layout_marginTop="5dp"
             android:layout_marginRight="20dp"
             android:layout_marginBottom="5dp"
-            android:background="@color/listdelimiter" />
+            android:background="@color/list_delimiter" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -515,7 +533,7 @@
             android:layout_marginTop="5dp"
             android:layout_marginRight="20dp"
             android:layout_marginBottom="5dp"
-            android:background="@color/listdelimiter" />
+            android:background="@color/list_delimiter" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -560,7 +578,7 @@
             android:layout_marginTop="5dp"
             android:layout_marginRight="20dp"
             android:layout_marginBottom="5dp"
-            android:background="@color/listdelimiter" />
+            android:background="@color/list_delimiter" />
 
     </LinearLayout>
 
