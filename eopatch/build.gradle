@@ -1,0 +1,37 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'kotlin-kapt'
+apply plugin: 'kotlin-allopen'
+apply plugin: 'com.hiya.jacoco-android'
+
+apply from: "${project.rootDir}/gradle/android_dependencies.gradle"
+apply from: "${project.rootDir}/gradle/android_module_dependencies.gradle"
+apply from: "${project.rootDir}/gradle/test_dependencies.gradle"
+apply from: "${project.rootDir}/gradle/jacoco_global.gradle"
+
+android {
+    dataBinding {
+        enabled = true
+    }
+}
+
+allprojects {
+    repositories {
+        flatDir {
+            dirs 'libs'
+        }
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation (name: 'eopatch_core', ext: 'aar')
+//    implementation (files("libs/eopatch_core.aar"))
+    implementation project(':core')
+    implementation project(':shared')
+    implementation project(':database')
+
+    //RxAndroidBle
+    implementation "com.polidea.rxandroidble2:rxandroidble:1.12.1"
+    implementation "com.jakewharton.rx2:replaying-share:2.2.0"
+}

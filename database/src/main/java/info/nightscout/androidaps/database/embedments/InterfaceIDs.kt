@@ -42,8 +42,8 @@ data class InterfaceIDs(
         YPSOPUMP,
         MDI,
         DIACONN_G8,
-        USER,
-        CACHE;
+        EOPATCH2,
+        USER;
 
         companion object {
 
