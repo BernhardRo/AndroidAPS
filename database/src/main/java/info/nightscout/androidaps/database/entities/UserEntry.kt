@@ -170,7 +170,6 @@ data class UserEntry(
         Omnipod,            //No entry currently
         OmnipodEros,
         OmnipodDash,        //No entry currently
-        EOPatch2,
         MDI,
         VirtualPump,
         SMS,                //From SMS plugin

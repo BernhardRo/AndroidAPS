@@ -2,7 +2,7 @@ package info.nightscout.androidaps.interfaces
 
 interface Autotune {
 
-    fun aapsAutotune(daysBack: Int, autoSwitch: Boolean, profileToTune: String = "", weekDays: BooleanArray? = null)
+    fun aapsAutotune(daysBack: Int, autoSwitch: Boolean, profileToTune: String = "")
     fun atLog(message: String)
 
     var lastRunSuccess: Boolean

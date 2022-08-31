@@ -19,7 +19,6 @@ import info.nightscout.androidaps.insight.di.InsightModule
 import info.nightscout.androidaps.plugin.general.openhumans.di.OpenHumansModule
 import info.nightscout.androidaps.plugins.pump.common.di.PumpCommonModule
 import info.nightscout.androidaps.plugins.pump.common.di.RileyLinkModule
-import info.nightscout.androidaps.plugins.pump.eopatch.dagger.EopatchModule
 import info.nightscout.androidaps.plugins.pump.medtronic.di.MedtronicModule
 import info.nightscout.androidaps.plugins.pump.omnipod.dash.di.OmnipodDashModule
 import info.nightscout.androidaps.plugins.pump.omnipod.eros.di.OmnipodErosModule
@@ -66,7 +65,6 @@ import javax.inject.Singleton
         WorkersModule::class,
         DiaconnG8Module::class,
         OpenHumansModule::class,
-        EopatchModule::class,
         SharedModule::class
     ]
 )

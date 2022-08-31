@@ -204,7 +204,7 @@ class MaintenancePlugin @Inject constructor(
      *
      * @return
      */
-    fun sendMail(
+    private fun sendMail(
         attachmentUri: Uri,
         recipient: String,
         subject: String,

@@ -105,7 +105,7 @@ android {
     defaultConfig {
         multiDexEnabled true
         versionCode 1500
-        version "3.1.0.2-dev-a"
+        version "3.1.0.3"
         buildConfigField "String", "VERSION", '"' + version + '"'
         buildConfigField "String", "BUILDVERSION", '"' + generateGitBuild() + '-' + generateDate() + '"'
         buildConfigField "String", "REMOTE", '"' + generateGitRemote() + '"'
@@ -159,10 +159,6 @@ android {
     }
 
     useLibrary "org.apache.http.legacy"
-
-    dataBinding {   //Deleting it causes a binding error
-        enabled = true
-    }
 }
 
 allprojects {
@@ -190,7 +186,6 @@ dependencies {
     implementation project(':omnipod-dash')
     implementation project(':diaconn')
     implementation project(':openhumans')
-    implementation project(':eopatch')
 
     implementation fileTree(include: ['*.jar'], dir: 'libs')
 

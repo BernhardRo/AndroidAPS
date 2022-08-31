@@ -11,7 +11,6 @@ import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
 import androidx.work.*
@@ -51,8 +50,6 @@ import info.nightscout.shared.sharedPreferences.SP
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.system.exitProcess
@@ -76,8 +73,6 @@ class ImportExportPrefsImpl @Inject constructor(
     private val uel: UserEntryLogger,
     private val dateUtil: DateUtil
 ) : ImportExportPrefs {
-
-    @Inject lateinit var maintenancePlugin: MaintenancePlugin
 
     override fun prefsFileExists(): Boolean {
         return prefFileList.listPreferenceFiles().size > 0
@@ -191,26 +186,6 @@ class ImportExportPrefsImpl @Inject constructor(
         )
     }
 
-    private fun emailExportedSettings(activity: FragmentActivity, file: File) {
-        TwoMessagesAlertDialog.showAlert(
-            activity, rh.gs(R.string.nav_export_email),
-            rh.gs(R.string.nav_export_email_description),
-            file.name, {
-                if (file.exists() && file.canRead()) {
-                    val attachmentUri =
-                        FileProvider.getUriForFile(activity, BuildConfig.APPLICATION_ID + ".fileprovider", file)
-                    val today: LocalDate = LocalDate.now()
-                    val subjectAndBody = rh.gs(R.string.maintenance_export_email_subject) + " " + today.format(DateTimeFormatter.ofPattern("dd-MMM-yy"))
-                    val recipient = sp.getString(R.string.key_maintenance_export_email, "update.export.email.address@settings.aaps")
-                    val emailIntent: Intent = maintenancePlugin.sendMail(attachmentUri, recipient, subjectAndBody, subjectAndBody)
-                    activity.startActivity(emailIntent)
-                } else {
-                    ToastUtils.Long.errorToast(activity, rh.gs(R.string.error))
-                }
-            }, null, R.drawable.ic_header_export
-        )
-    }
-
     private fun askToConfirmImport(activity: FragmentActivity, fileToImport: PrefsFile, then: ((password: String) -> Unit)) {
         if (!assureMasterPasswordSet(activity, R.string.nav_import)) return
         TwoMessagesAlertDialog.showAlert(
@@ -265,7 +240,6 @@ class ImportExportPrefsImpl @Inject constructor(
                 encryptedPrefsFormat.savePreferences(newFile, prefs, password)
 
                 ToastUtils.okToast(activity, rh.gs(R.string.exported))
-                emailExportedSettings(activity, newFile)
             } catch (e: FileNotFoundException) {
                 ToastUtils.errorToast(activity, rh.gs(R.string.filenotfound) + " " + newFile)
                 log.error(LTag.CORE, "Unhandled exception", e)
