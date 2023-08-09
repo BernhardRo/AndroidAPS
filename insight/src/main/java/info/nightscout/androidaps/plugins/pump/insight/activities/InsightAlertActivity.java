@@ -1,13 +1,13 @@
 package info.nightscout.androidaps.plugins.pump.insight.activities;
 
+import android.app.KeyguardManager;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.Bundle;
 import android.os.IBinder;
-import android.text.Html;
 import android.view.View;
-import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
@@ -22,7 +22,7 @@ import info.nightscout.androidaps.plugins.pump.insight.InsightAlertService;
 import info.nightscout.androidaps.plugins.pump.insight.descriptors.Alert;
 import info.nightscout.androidaps.plugins.pump.insight.descriptors.AlertStatus;
 import info.nightscout.androidaps.plugins.pump.insight.utils.AlertUtils;
-import info.nightscout.androidaps.utils.HtmlHelper;
+import info.nightscout.interfaces.utils.HtmlHelper;
 
 public class InsightAlertActivity extends DaggerAppCompatActivity {
 
@@ -69,10 +69,10 @@ public class InsightAlertActivity extends DaggerAppCompatActivity {
 
         setFinishOnTouchOutside(false);
 
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-                | WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
-                | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-                | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+        setShowWhenLocked(true);
+        setTurnScreenOn(true);
+        KeyguardManager keyguardManager = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+        keyguardManager.requestDismissKeyguard(this, null);
     }
 
     @Override
