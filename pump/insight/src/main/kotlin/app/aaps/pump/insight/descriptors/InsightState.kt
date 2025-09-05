@@ -1,11 +1,6 @@
-<<<<<<<< HEAD:pump/insight/src/main/kotlin/app/aaps/pump/insight/descriptors/InsightState.java
-package info.nightscout.androidaps.plugins.pump.insight.descriptors;
-
-public enum InsightState {
-========
 package app.aaps.pump.insight.descriptors
->>>>>>>> tags:pump/insight/src/main/kotlin/app/aaps/pump/insight/descriptors/InsightState.kt
 
+enum class InsightState {
     NOT_PAIRED,
     DISCONNECTED,
     RECOVERING,
@@ -22,5 +17,5 @@ package app.aaps.pump.insight.descriptors
     APP_FIRMWARE_VERSIONS,
     APP_ACTIVATE_PARAMETER_SERVICE,
     APP_SYSTEM_IDENTIFICATION,
-    CONNECTED,
+    CONNECTED
 }

@@ -40,6 +40,8 @@ class MM640gPlugin @Inject constructor(
     aapsLogger, rh
 ), BgSource {
 
+    override fun advancedFilteringSupported(): Boolean = true
+
     // cannot be inner class because of needed injection
     class MM640gWorker(
         context: Context,
@@ -71,7 +73,7 @@ class MM640gPlugin @Inject constructor(
                                     glucoseValues += GV(
                                         timestamp = jsonObject.getLong("date"),
                                         value = jsonObject.getDouble("sgv"),
-                                        raw = jsonObject.getDouble("rawbg"),
+                                        raw = jsonObject.getDouble("sgv"),
                                         noise = null,
                                         trendArrow = TrendArrow.fromString(jsonObject.getString("direction")),
                                         sourceSensor = SourceSensor.MM_600_SERIES

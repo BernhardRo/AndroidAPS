@@ -43,28 +43,12 @@ data class Bolus(
     override var utcOffset: Long = TimeZone.getDefault().getOffset(timestamp).toLong(),
     var amount: Double,
     var type: Type,
+    var notes: String? = null,
     var isBasalInsulin: Boolean = false,
     @Embedded
     var insulinConfiguration: InsulinConfiguration? = null
 ) : TraceableDBEntry, DBEntryWithTime {
 
-<<<<<<< HEAD:database/entities/src/main/kotlin/app/aaps/database/entities/Bolus.kt
-    fun contentEqualsTo(other: Bolus): Boolean =
-        isValid == other.isValid &&
-            timestamp == other.timestamp &&
-            utcOffset == other.utcOffset &&
-            amount == other.amount &&
-            type == other.type &&
-            isBasalInsulin == other.isBasalInsulin
-
-    fun onlyNsIdAdded(previous: Bolus): Boolean =
-        previous.id != id &&
-            contentEqualsTo(previous) &&
-            previous.interfaceIDs.nightscoutId == null &&
-            interfaceIDs.nightscoutId != null
-
-=======
->>>>>>> tags:database/impl/src/main/kotlin/app/aaps/database/entities/Bolus.kt
     enum class Type {
         NORMAL,
         SMB,

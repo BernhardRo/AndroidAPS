@@ -30,3 +30,5 @@ wear/pumpcontrol/*
 .kotlin/*
 /*.log
 *.preferences_pb
+/bak.git
+/bak.github

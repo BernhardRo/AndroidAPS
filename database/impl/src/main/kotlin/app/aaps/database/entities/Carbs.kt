@@ -37,27 +37,6 @@ data class Carbs(
     override var timestamp: Long,
     override var utcOffset: Long = TimeZone.getDefault().getOffset(timestamp).toLong(),
     override var duration: Long, // in milliseconds
-<<<<<<< HEAD:database/entities/src/main/kotlin/app/aaps/database/entities/Carbs.kt
-    var amount: Double
-) : TraceableDBEntry, DBEntryWithTimeAndDuration {
-
-    fun contentEqualsTo(other: Carbs): Boolean =
-        isValid == other.isValid &&
-            timestamp == other.timestamp &&
-            utcOffset == other.utcOffset &&
-            amount == other.amount &&
-            duration == other.duration
-
-    fun onlyNsIdAdded(previous: Carbs): Boolean =
-        previous.id != id &&
-            contentEqualsTo(previous) &&
-            previous.interfaceIDs.nightscoutId == null &&
-            interfaceIDs.nightscoutId != null
-
-    companion object
-}
-=======
     var amount: Double,
     var notes: String? = null
 ) : TraceableDBEntry, DBEntryWithTimeAndDuration
->>>>>>> tags:database/impl/src/main/kotlin/app/aaps/database/entities/Carbs.kt
