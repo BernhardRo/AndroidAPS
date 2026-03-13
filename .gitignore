@@ -30,5 +30,6 @@ wear/pumpcontrol/*
 .kotlin/*
 /*.log
 *.preferences_pb
-/bak.git
-/bak.github
+/buildSrc/.kotlin
+.claude/settings.local.json
+.claude/CLAUDE_COMMANDS.md

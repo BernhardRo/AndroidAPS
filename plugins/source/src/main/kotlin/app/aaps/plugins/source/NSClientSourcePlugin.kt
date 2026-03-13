@@ -1,5 +1,6 @@
 package app.aaps.plugins.source
 
+import androidx.annotation.VisibleForTesting
 import app.aaps.core.data.model.GV
 import app.aaps.core.data.model.SourceSensor
 import app.aaps.core.data.plugin.PluginType
@@ -40,10 +41,8 @@ class NSClientSourcePlugin @Inject constructor(
         if (glucoseValue.timestamp > lastBGTimeStamp) {
             isAdvancedFilteringEnabled = true || arrayOf(
                 SourceSensor.DEXCOM_NATIVE_UNKNOWN,
-                SourceSensor.DEXCOM_G5_NATIVE,
                 SourceSensor.DEXCOM_G6_NATIVE,
                 SourceSensor.DEXCOM_G7_NATIVE,
-                SourceSensor.DEXCOM_G5_NATIVE_XDRIP,
                 SourceSensor.DEXCOM_G6_NATIVE_XDRIP,
                 SourceSensor.DEXCOM_G7_NATIVE_XDRIP,
                 SourceSensor.EVERSENSE,
