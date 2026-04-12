@@ -1,26 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- RL keys -->
+    <!-- PumpDeviceState -->
+    <string name="pump_status_never_contacted">Ранее не подключалась</string>
+    <string name="pump_status_sleeping">Спящий режим</string>
+    <string name="pump_status_waking_up">Пробуждение</string>
+    <string name="pump_status_active">Активна</string>
+    <string name="pump_status_error_comm">Ошибка связи</string>
+    <string name="pump_status_timeout_comm">Таймаут связи</string>
+    <string name="pump_status_invalid_config">Недопустимая конфигурация</string>
+    <string name="medtronic_pump_encoding_4b6b_local">Программное кодирование 4b6b</string>
+    <string name="medtronic_pump_encoding_4b6b_rileylink">Аппаратное кодирование 4b6b</string>
+    <string name="medtronic_pump_frequency_us_ca">США &amp; Канада (916 МГц)</string>
+    <string name="medtronic_pump_frequency_worldwide">Глобальная (868 Мгц)</string>
     <!-- RL BLE Config -->
-    <string name="riley_link_ble_config_button_scan_start">Сканировать</string>
-    <string name="riley_link_ble_config_scan_stop">Прервать</string>
-    <string name="riley_link_ble_config_scan_selected">Выбрано</string>
-    <string name="riley_link_ble_config_scan_title">Сканирование RileyLink</string>
     <string name="riley_link_ble_config_scan_scanning">Сканирование</string>
-    <string name="riley_link_ble_config_scan_finished">Сканирование завершено</string>
-    <string name="riley_link_ble_config_scan_error">Ошибка сканирования: %1$d</string>
     <string name="riley_link_ble_config_connected_never">Никогда</string>
-    <string name="riley_link_ble_config_scan_currently_selected_riley_link">Выбранный RileyLink</string>
-    <string name="riley_link_ble_config_remove_riley_link">Удалить</string>
-    <string name="riley_link_ble_config_remove_riley_link_confirmation">Подтверждаете удаление RileyLink?</string>
-    <string name="riley_link_ble_config_remove_riley_link_confirmation_title">Удалить RileyLink</string>
-    <string name="riley_link_ble_config_no_riley_link_selected">RileyLink не выбран</string>
     <!-- RL Status Page -->
-    <string name="rileylink_settings_tab1">Настройки</string>
-    <string name="rileylink_settings_tab2">История</string>
     <string name="rileylink_status">Статус RileyLink</string>
     <string name="medtronic_pump_status">Статус помпы</string>
-    <string name="title_activity_rileylink_settings">Настройки RileyLink</string>
     <string name="rileylink_title">RileyLink</string>
     <string name="rileylink_address">Адрес:</string>
     <string name="rileylink_name">Имя:</string>
@@ -57,13 +54,10 @@
     <string name="rileylink_error_bt_disabled">Bluetooth выключен</string>
     <string name="rileylink_error_no_bt_adapter">Нет Bluetooth-адаптера</string>
     <string name="rileylink_error_tuneup_failed">Ошибка TuneUp</string>
-    <string name="rileylink_error_pump_unreachable">Помпа недоступна</string>
     <string name="rileylink_error_pod_unreachable">POD недоступен</string>
     <!-- RileyLink - Common -->
     <string name="rileylink_target_device_medtronic">Помпа Medtronic</string>
     <string name="rileylink_target_device_omnipod">Omnompod (Eros)</string>
-    <string name="riley_link_common_yes">Да</string>
-    <string name="riley_link_common_no">Нет</string>
     <!-- RileyLink - Preferences -->
     <string name="riley_link_show_battery_level">Показать уровень батареи от OrangeLink/EmaLink/DiaLink</string>
     <string name="riley_link_show_battery_level_summary">НЕ РАБОТАЕТ с оригинальной RileyLink. Может не работать с альтернативными RileyLink.</string>
@@ -81,5 +75,4 @@
     </plurals>
     <string name="orange_use_scanning_level">Использовать сканирование</string>
     <string name="orange_use_scanning_level_summary">Используйте сканирование перед сопряжением с OrangeLink, это должно улучшить качество связи (при необходимости можно применять и в других клонах RileyLink)</string>
-    <string name="rileylink_configuration">Конфигурация RileyLink</string>
 </resources>

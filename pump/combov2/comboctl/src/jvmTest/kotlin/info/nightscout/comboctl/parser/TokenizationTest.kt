@@ -1,11 +1,13 @@
 package info.nightscout.comboctl.parser
 
+import app.aaps.shared.tests.TestBase
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class TokenizationTest {
+class TokenizationTest : TestBase() {
+
     @Test
     fun checkBasicPatternMatch() {
         // Try to match the LARGE_BASAL symbol pattern in the testFrameMainScreenWithTimeSeparator.
@@ -13,7 +15,7 @@ class TokenizationTest {
         // Trying to match it at those coordinates is expected to succeed,
         // while trying to match it slightly to the right should fail.
 
-        val largeBasalGlyphPattern = glyphPatterns[Glyph.LargeSymbol(LargeSymbol.BASAL)]!!
+        val largeBasalGlyphPattern = glyphPatterns.getValue(Glyph.LargeSymbol(LargeSymbol.BASAL))
 
         val result1 = checkIfPatternMatchesAt(
             testFrameMainScreenWithTimeSeparator,

@@ -5,7 +5,6 @@
     <string name="error">Fel</string>
     <string name="profile_set_ok">Basalprofilen uppdaterad i pumpen</string>
     <string name="invalid_input">Fel på inmatning</string>
-    <string name="bolus_delivering">Levererar %1$.2f enheter</string>
     <string name="constraint_applied">Begränsning nådd</string>
     <string name="tempbasals_iobtotal_label_string">IOB fr basal:</string>
     <string name="tt_label">TT</string>
@@ -35,7 +34,7 @@
     <string name="do_ns_upload_title">Ladda upp BG-data till Nightscout</string>
     <string name="configbuilder_insulin">Insulin</string>
     <string name="value_unavailable_short">-</string>
-    <string name="master_password">Huvudlösenord</string>
+    <!-- master_password moved to core/keys/strings.xml -->
     <string name="ue_export_to_csv">Exportera användarposter till Excel (csv)</string>
     <string name="confirm">Bekräfta</string>
     <string name="pump">Pump</string>
@@ -44,12 +43,15 @@
     <string name="mute5min">Tysta i 5 minuter</string>
     <string name="mute">Tysta</string>
     <string name="success">Lyckad</string>
+    <string name="advanced_settings_title">Avancerade inställningar</string>
     <string name="extendedbolusdeliveryerror">Förlängd bolus misslyckad</string>
+    <string name="aps_mode_title">APS-läge</string>
     <string name="extended_bolus">Förlängd bolus</string>
     <string name="paused">Pausad</string>
     <string name="tdd_total">TDD totalt</string>
     <string name="goingtodeliver">Kommer att leverera %1$.2f enheter</string>
     <string name="waitingforpump">Väntar på pump</string>
+    <string name="androidaps_start">AAPS startad</string>
     <string name="formatsignedinsulinunits">%1$+.2f U</string>
     <string name="format_carbs">%1$dg</string>
     <string name="format_hours">%1$.2f h</string>
@@ -58,6 +60,8 @@
     <string name="please_wait">Var god vänta…</string>
     <string name="stop">Stopp</string>
     <string name="carbs">Kolhydrater</string>
+    <string name="invalid_profile">Ogiltig profil!</string>
+    <string name="no_profile_set">INGEN PROFIL VALD</string>
     <string name="active"><![CDATA[<Aktiv>]]></string>
     <string name="date">Datum</string>
     <string name="units_label">Enheter</string>
@@ -74,8 +78,6 @@
     <string name="shortgram">g</string>
     <string name="shortpercent">%</string>
     <string name="bluetooth">Bluetooth</string>
-    <string name="btwatchdog_title">Bluetooth-övervakare</string>
-    <string name="btwatchdog_summary">Startar om bluetooth på telefonen om anslutning till pumpen misslyckas. Detta hjälper på en del telefoner där bluetooth ibland hänger sig.</string>
     <string name="virtualpump_resultok">OK</string>
     <string name="pump_time_updated">Tiden uppdaterad i pumpen</string>
     <string name="exit">Avsluta</string>
@@ -83,7 +85,6 @@
     <string name="loopisdisabled">Loop är inaktiverad</string>
     <string name="alarm">Larm</string>
     <string name="disableloop">Inaktivera loop</string>
-    <string name="enableloop">Aktivera loop</string>
     <string name="resumeloop">Återuppta loop</string>
     <string name="suspendloop">Pausa loop</string>
     <string name="duration_min_label">Duration [min]</string>
@@ -97,16 +98,14 @@
     <string name="name_short">Namn:</string>
     <string name="time">Tid</string>
     <string name="ns_wifi_ssids">WiFi nätverksnamn</string>
-    <string name="loading">Laddar…</string>
     <string name="notes_label">Anteckning</string>
     <string name="remove_button">Ta bort</string>
+    <string name="add_new">Lägg till ny</string>
     <string name="addnew_above">Lägg till nytt ovan</string>
     <string name="wrong_pump_data">Data kommer från en annan pump. Byt pumpdrivrutin för att återställa.</string>
     <string name="bg_label">BG</string>
     <string name="calibration">Kalibrering</string>
     <string name="alarminxmin">Larma om %1$d min</string>
-    <string name="treatmentdeliveryerror">Ett fel rapporterades under bolus. Vänligen kontrollera pumpen manuellt</string>
-    <string name="bolus_reminder">Boluspåminnelse</string>
     <string name="duration_label">Duration</string>
     <string name="shortgramm">g</string>
     <string name="pumpsuspended">Pump pausad</string>
@@ -128,22 +127,22 @@
     <string name="a11y_inrange">inom målområdet</string>
     <string name="a11y_low">låg</string>
     <string name="average">Medel</string>
-    <string name="tir">TIR</string>
     <string name="none"><![CDATA[<ingen>]]></string>
     <string name="remove_label">TA BORT</string>
     <string name="activate_profile">Aktivera profil</string>
-    <string name="reset">Återställ</string>
     <string name="profileswitch_ismissing">Profilbyte saknas. Vänligen gör ett profilbyte eller tryck Aktivera profil under Lokal Profil.</string>
     <string name="profile">Profil</string>
+    <string name="select_for_removal">Markera för borttagning</string>
+    <string name="confirm_remove_multiple_items">Är du säker på att du vill ta bort %1$d objekt</string>
     <string name="overview_treatment_label">Behandling</string>
     <string name="copytolocalprofile">Skapa kopia av denna profil?</string>
-    <string name="wear_wizard_settings">Kalkylatorinställningar</string>
     <string name="bg_trend_label">15 min trend</string>
     <string name="treatments_wizard_cob_label">COB</string>
     <string name="bolus_iob_label">Bolus IOB</string>
     <string name="treatments_wizard_basaliob_label">IOB från basal</string>
     <string name="invalid">OGILTIG</string>
     <string name="login">Logga in</string>
+    <string name="prime_fill">Prime/Fyll</string>
     <string name="overview_insulin_label">Insulin</string>
     <string name="stoptemptarget">Avbryt temp mål</string>
     <string name="closedloop">Closed Loop</string>
@@ -152,13 +151,18 @@
     <string name="dia">Duration</string>
     <string name="ic_short">IC</string>
     <string name="isf_short">ISF</string>
-    <string name="suspendloop_label">Inaktiverad/pausad loop</string>
+    <string name="canceling_tbr_failed">Det gick inte att avbryta temp-basal</string>
+    <string name="canceling_eb_failed">Det gick inte att avbryta förlängd bolus</string>
+    <string name="virtualpump_uploadstatus_title">Ladda upp status till Nightscout eller Tidepool</string>
     <string name="iob_label">Aktivt Insulin (IOB)</string>
     <!--    Protection-->
     <string name="wrongpassword">Fel lösenord</string>
+    <string name="wrongpin">Fel PIN-kod</string>
     <string name="passwords_dont_match">Lösenorden stämmer inte överens</string>
+    <string name="pin_dont_match">PIN-koderna överensstämmer inte</string>
     <!--    Profile-->
     <string name="basalprofilenotaligned">Profilens basaler är inte satta på hel timme: %1$s</string>
+    <string name="minimalbasalvaluereplaced">Basalvärdet ersatt med det lägsta tillåtna: %1$s</string>
     <string name="maximumbasalvaluereplaced">Basalvärdet ersatt med det högsta tillåtna: %1$s</string>
     <string name="profile_per_unit">/U</string>
     <string name="profile_ins_units_per_hour">U/h</string>
@@ -166,11 +170,13 @@
     <!--    ProfileFunction-->
     <string name="startprofile">Byt till profil %1$d%% i %2$d min</string>
     <!--    APSResult-->
+    <string name="cancel_temp">Avbryt temp-basal</string>
     <string name="let_temp_basal_run">Låt temp basalen gå</string>
     <string name="rate">Basaldos</string>
     <string name="duration">Duration</string>
     <string name="reason">Orsak</string>
     <string name="nochangerequested">Ingen ändring behövs</string>
+    <!--    Insulin / Concentration-->
     <!--    ProfileSwitch-->
     <string name="zerovalueinprofile">Ogiltig profil: %1$s</string>
     <!--    Temptarget-->
@@ -187,9 +193,12 @@
     <string name="careportal_note_message">Anteckning: %1$s</string>
     <string name="careportal_question_message">Fråga : %1$s</string>
     <string name="careportal_exercise_message">Träning : %1$s</string>
+    <string name="careportal_pump_site_change">Pump/nålbyte</string>
+    <string name="cgm_sensor_insert">Sensorbyte</string>
     <string name="careportal_cgmsensorstart">Start CGM-sensor</string>
     <string name="careportal_cgm_sensor_stop">Stoppa CGM-sensor</string>
     <string name="careportal_dad_alert">Diabeteshundlarm</string>
+    <string name="careportal_insulin_cartridge_change">Byte av insulinreservoar</string>
     <string name="careportal_profileswitch">Profilbyte</string>
     <string name="careportal_snackbolus">Mellanmålsbolus</string>
     <string name="careportal_mealbolus">Måltidsbolus</string>
@@ -199,6 +208,8 @@
     <string name="careportal_tempbasalend">Temp basal slut</string>
     <string name="careportal_carbscorrection">KH-korrektion</string>
     <string name="careportal_openapsoffline">OpenAPS Offline</string>
+    <string name="pump_battery_change">Byte av pumpbatteri</string>
+    <string name="temporary_target">Tillfälligt mål</string>
     <string name="careportal_temporarytargetvalue">Temp målvärde</string>
     <string name="careportal_temporarytargetcancel">Avbryt temp mål</string>
     <string name="boluswizard">Kalkylator</string>
@@ -225,15 +236,17 @@
     <string name="waitingforpumpresult">Väntar på resultat</string>
     <string name="smb_shortname">SMB</string>
     <!--    CarbsReq-->
+    <string name="carbsreq">%1$d g kolhydrater behövs inom %2$d minuter</string>
     <!--    TDDStatsActivity-->
+    <string name="cumulative_tdd">Sammanlagd TDD</string>
     <string name="expweight">Exponentiellt viktad TDD</string>
     <string name="basalrate">Basal</string>
     <string name="bolus">Bolus</string>
-    <string name="tdd">TDD</string>
     <string name="ratio">Kvot</string>
     <string name="amount_days">Antal dagar</string>
     <string name="weight">Vikt</string>
     <string name="warning_Message">Kan visa fel om man använder bolus för förfyllning!</string>
+    <string name="olddata_Message">Gammal data, vänligen tryck på \"UPPDATERA\"</string>
     <string name="tbb">Total grundbasal</string>
     <string name="tbb2">TDB * 2</string>
     <!--    Ntp-->
@@ -257,7 +270,6 @@
     <string name="uel_lgs_loop_mode">LGS LOOP-LÄGE</string>
     <string name="uel_open_loop_mode">OPEN LOOP-LÄGE</string>
     <string name="uel_loop_disabled">LOOP INAKTIVERAD</string>
-    <string name="uel_loop_enabled">LOOP AKTIVERAD</string>
     <string name="uel_reconnect">ÅTERANSLUT</string>
     <string name="uel_disconnect">KOPPLA IFRÅN</string>
     <string name="uel_resume">ÅTERUPPTA</string>
@@ -306,9 +318,11 @@
     <string name="uel_stat_reset">ÅTERSTÄLL STATISTIK</string>
     <string name="uel_delete_logs">RADERA LOGGAR</string>
     <string name="uel_delete_future_treatments">RADERA FRAMTIDA BEHANDLINGAR</string>
+    <string name="delete_future_treatments">Radera framtida behandlingar</string>
     <string name="uel_export_settings">EXPORTERA INSTÄLLNINGAR</string>
     <string name="uel_import_settings">IMPORTERA INSTÄLLNINGAR</string>
     <string name="uel_reset_databases">ÅTERSTÄLL DATABASERNA</string>
+    <string name="uel_cleanup_databases">RENSA DATABASER</string>
     <string name="uel_export_databases">EXPORTERA DATABASERNA</string>
     <string name="uel_import_databases">IMPORTERA DATABASER</string>
     <string name="uel_otp_export">EXPORTERA OTP</string>
@@ -344,11 +358,15 @@
     <string name="valueoutofrange">»%1$s« är utanför de hårda gränserna</string>
     <string name="value_out_of_hard_limits">»%1$s« %2$.2f är utanför hårda gränser</string>
     <string name="basal_value">Basaldos</string>
+    <!-- Profile validation -->
     <!-- Command Queue + readStatus reasons -->
     <string name="bolus_u_min">BOLUS %1$.2f U</string>
     <string name="carbs_g">KH %1$d g</string>
     <string name="extended_bolus_u_min">FÖRLÄNGD BOLUS %1$.2f U %2$d min</string>
     <string name="load_events">HÄMTA HÄNDELSER</string>
+    <string name="clear_alarms">RENSA LARM</string>
+    <string name="deactivate">AVAKTIVERA</string>
+    <string name="update_time">UPPDATERAD TID</string>
     <string name="load_history">HÄMTA HISTORIK %1$d</string>
     <string name="load_tdds">HÄMTA TDD</string>
     <string name="set_profile">SPARA PROFIL</string>
@@ -366,28 +384,33 @@
     <string name="formatPercent">%1$.0f%%</string>
     <string name="basal">Basal</string>
     <string name="basalpct">Basal %</string>
+    <string name="a11y_file">fil</string>
     <string name="a11y_user">ditt namn</string>
     <!-- Autotune -->
-    <string name="autotune_result">Resultat: %1$s</string>
-    <string name="autotune_missing">Saknas:</string>
-    <string name="autotune_compare_profile">Jämför profiler</string>
+    <string name="autotune">Autotune</string>
+    <string name="autotune_tune_days">Justering dagar :</string>
+    <string name="autotune_select_profile">Välj profil att justera</string>
     <!-- Alerts -->
-    <string name="raise_notifications_as_android_notifications">Systemaviseringar för larm &amp; info</string>
     <string name="urgent_alarm">Akut larm</string>
     <string name="info">INFO</string>
     <!-- BolusWizard -->
+    <string name="bolus_advisor">Bolusguide</string>
+    <string name="bolus_advisor_message">Ditt blodsocker är högt. Istället för att äta är det rekommenderat att vänta tills det sjunker. Vill du göra en korrigeringsbolus nu och få en påminnelse när det är dags att äta? I det här fallet kommer inga kolhydrater att registreras nu, utan du måste ange måltiden på nytt i kalkylatorn.</string>
     <string name="cobvsiob">COB kontra IOB</string>
     <string name="slowabsorptiondetected"><![CDATA[<font color=\'%1$s\'>Varning! Långsam KH-absorption upptäckt %2$d%% av tiden. Dubbelkolla din beräkning. COB kan vara väldigt missvisande och du riskerar få för mycket insulin!</font>]]></string>
-    <string name="partialboluswizard">Direkt bolus [%]</string>
+    <string name="bolus_constraint_applied_warn">Bolusbegränsning tillämpad: %1$.2f U till %2$.2f U</string>
+    <string name="bolus_recorded_only">Bolus kommer bara att loggas (inte levereras av pumpen)</string>
     <string name="advisoralarm">Larma när det är dags att äta</string>
     <string name="no_action_selected">Ingen åtgärd vald. Inget ändras.</string>
     <string name="wizard_no_actual_bg">Inget nytt BG-värde att basera beräkning på!</string>
     <string name="wizard_no_active_profile">Ingen aktiv profil vald!</string>
     <string name="wizard_no_cob">Okänt COB! Saknas BG eller är appen nyss omstartad?</string>
     <string name="wizard_carbs_constraint">Max KH uppnått!</string>
+    <string name="wizard_explain_calc">Kalkyl (IC: %1$.1f, ISF: %2$.1f)</string>
     <string name="wizard_explain_carbs">Kolhydrater: %1$.2fU</string>
     <string name="wizard_explain_cob">COB: %1$.0fg %2$.2fU</string>
     <string name="wizard_explain_bg">BG: %1$.2fU</string>
+    <string name="wizard_explain_iob">IOB: %1$.2fU</string>
     <string name="wizard_explain_superbolus">Superbolus: %1$.2fU</string>
     <string name="wizard_explain_trend">15\' trend: %1$.2fU</string>
     <string name="wizard_explain_percent">Procent: %1$.2fU x %2$d%% ≈ %3$.2fU</string>
@@ -395,10 +418,17 @@
     <string name="wizard_explain_tt">TempM: %1$s</string>
     <string name="wizard_explain_tt_to">%1$s till %2$s</string>
     <string name="wizard_pump_not_available">Ingen pump tillgänglig!</string>
+    <string name="quickwizard">Snabbknappar</string>
     <!--    Preferences-->
+    <string name="child">Barn</string>
     <string name="teenage">Tonåring</string>
     <string name="adult">Vuxen</string>
+    <string name="resistant_adult">Insulinresistent vuxen</string>
     <string name="pregnant">Gravid</string>
+    <string name="patient_age_summary">Välj en patienttyp för att ställa in säkerhetsgränser</string>
+    <string name="max_bolus_title">Max tillåten bolus [U]</string>
+    <string name="max_carbs_title">Maximalt tillåtna kolhydrater [g]</string>
+    <string name="patient_type">Patienttyp</string>
     <!--    Protection-->
     <string name="unlock_settings">Lås upp inställningar</string>
     <!--    Pumps -->
@@ -436,21 +466,27 @@
     <string name="limitingpercentrate">Begränsar max procent hastighet till %1$d%% pga %2$s</string>
     <string name="itmustbepositivevalue">det måste vara ett positivt värde</string>
     <string name="limitingbolus">Max bolus: %1$.1f U pga %2$s</string>
-    <!-- Locale -->
     <!--    Dialogs-->
     <string name="confirmation">Bekräftelse</string>
     <string name="message">Meddelande</string>
     <string name="ok">OK</string>
     <string name="cancel">Avbryt</string>
-    <string name="dismiss">TA BORT</string>
     <string name="yes">Ja</string>
     <string name="no">Nej</string>
     <string name="close">Stäng</string>
     <!-- TwoMessagesDialog -->
     <string name="password_preferences_decrypt_prompt">Du kommer att bli tillfrågad om huvudlösenordet som sedan kommer att användas för att avkryptera importerade inställningar.</string>
+    <!-- <unattended_export> -->
+    <!-- Export dialog strings -->
+    <!-- <unattended_export result messages> -->
+    <!-- Cloud export -->
+    <!-- Export destination chip labels -->
+    <!-- Maintenance bottom sheet descriptions -->
+    <!-- Cloud directory dialog (Compose) -->
     <!-- NumberPicker -->
     <string name="a11y_min_button_description">minska %1$s med %2$s</string>
     <string name="a11y_plus_button_description">öka %1$s med %2$s</string>
+    <string name="you_are_on_allowed_limit">Tillåten gräns nådd</string>
     <string name="format_hour_minute">%1$dh %2$dm</string>
     <!-- datetime layout -->
     <string name="event_time_label">Tid</string>
@@ -467,9 +503,14 @@
     <string name="location_not_found_message">För att Bluetooth ska fungera med nyare enheter, måste platsdata vara aktiverat. AAPS sparar inte din plats och det kan stängas av efter att enheten har parkopplats.</string>
     <!--    Preferences -->
     <string name="nav_plugin_preferences">Inställningar för insticksprogram</string>
-    <!-- SmsCommunicator -->
-    <string name="smscommunicator_missingsmspermission">Saknar behörighet att skicka SMS</string>
+    <!-- Navigation -->
+    <!-- Alerts -->
+    <!-- Actions Screen -->
+    <!-- Site Rotation -->
     <!-- About -->
+    <string name="cta_dont_kill_my_app_info">Döda inte min app?</string>
+    <string name="fabric_upload_disabled">Uppladdning av kraschloggar inaktiverad!</string>
+    <string name="about_link_urls">\n\nDokumentation:\nhttps://androidaps.readthedocs.io\n\nfacebook:\nhttps://www.facebook.com/groups/AndroidAPSUsers</string>
     <plurals name="days">
         <item quantity="one">%1$d dag</item>
         <item quantity="other">%1$d dagar</item>
@@ -483,4 +524,18 @@
         <item quantity="other">%1$d min</item>
     </plurals>
     <!--    Maintenance-->
+    <string name="cleanup_db_confirm">Vill du rensa databasen?\nDet kommer att ta bort spårade ändringar och historiska data äldre än 3 månader.</string>
+    <string name="cleanup_db_confirm_sync">Vill du rensa databasen?\nDet kommer att ta bort spårade ändringar och historiska data äldre än 3 månader.\nAtt göra det kommer att påskynda full synkronisering dramatiskt.</string>
+    <string name="cleared_entries">Rensade poster</string>
+    <!--    Weekday-->
+    <!-- WeekdayPicker -->
+    <!--    DecimalFormatterImpl -->
+    <string name="format_insulin_units">%1$.2fU</string>
+    <!--    Playback-->
+    <!-- ProfileEditor -->
+    <!--    Search-->
+    <!--    Log Settings-->
+    <!--    Maintenance-->
+    <!-- Import settings screen -->
+    <!--    BLE Scan Step (shared pump pairing) -->
 </resources>

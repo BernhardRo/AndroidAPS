@@ -5,7 +5,6 @@
     <string name="error">Fejl</string>
     <string name="profile_set_ok">Basal profil i pumpen er opdateret</string>
     <string name="invalid_input">Ugyldigt input</string>
-    <string name="bolus_delivering">Afgiver %1$.2f IE</string>
     <string name="constraint_applied">Begrænsning anvendt!</string>
     <string name="tempbasals_iobtotal_label_string">Total IOB:</string>
     <string name="tt_label">Midlertidig Mål</string>
@@ -35,6 +34,7 @@
     <string name="do_ns_upload_title">Upload BG data til NS</string>
     <string name="configbuilder_insulin">Insulin</string>
     <string name="value_unavailable_short">ikke tilgængelig</string>
+    <!-- master_password moved to core/keys/strings.xml -->
     <string name="ue_export_to_csv">Eksporter brugerindtastninger til Excel (csv)</string>
     <string name="confirm">Bekræft</string>
     <string name="pump">Pumpe</string>
@@ -43,7 +43,9 @@
     <string name="mute5min">Lydløs i 5 minutter</string>
     <string name="mute">Lydløs</string>
     <string name="success">Succes</string>
+    <string name="advanced_settings_title">Avancerede indstillinger</string>
     <string name="extendedbolusdeliveryerror">Forlænget bolus leveringsfejl</string>
+    <string name="aps_mode_title">APS-Tilstand</string>
     <string name="extended_bolus">Forlænget bolus</string>
     <string name="paused">Pauset</string>
     <string name="tdd_total">TDD Total</string>
@@ -58,6 +60,8 @@
     <string name="please_wait">Vent venligst…</string>
     <string name="stop">Stop</string>
     <string name="carbs">Kulhydrater</string>
+    <string name="invalid_profile">Ugyldig profil!</string>
+    <string name="no_profile_set">INGEN PROFIL SAT</string>
     <string name="active"><![CDATA[<Active>]]></string>
     <string name="date">Dato</string>
     <string name="units_label">Enheder</string>
@@ -74,8 +78,6 @@
     <string name="shortgram">g</string>
     <string name="shortpercent">%</string>
     <string name="bluetooth">Bluetooth</string>
-    <string name="btwatchdog_title">BT Vagthund</string>
-    <string name="btwatchdog_summary">Slår telefonens bluetooth fra i et sekund, hvis der ikke er mulighed for tilslutning til pumpen. Dette kan hjælpe på nogle telefoner, hvis bluetooth stakken fryser.</string>
     <string name="virtualpump_resultok">OK</string>
     <string name="pump_time_updated">Pumpetid opdateret</string>
     <string name="exit">Afslut</string>
@@ -83,7 +85,6 @@
     <string name="loopisdisabled">Loop er deaktiveret</string>
     <string name="alarm">Alarm</string>
     <string name="disableloop">Deaktivér loop</string>
-    <string name="enableloop">Aktiver loop</string>
     <string name="resumeloop">Genoptag loop</string>
     <string name="suspendloop">Suspendér Loop</string>
     <string name="duration_min_label">Varighed [min]</string>
@@ -97,16 +98,14 @@
     <string name="name_short">Navn:</string>
     <string name="time">Tid</string>
     <string name="ns_wifi_ssids">WiFi SSID</string>
-    <string name="loading">Indlæser …</string>
     <string name="notes_label">Bemærkninger</string>
     <string name="remove_button">Fjern</string>
+    <string name="add_new">Tilføj ny</string>
     <string name="addnew_above">Tilføj ny ovenfor</string>
     <string name="wrong_pump_data">Data kommer fra en anden pumpe. Skift pumpedriver for at nulstille pumpetilstand.</string>
     <string name="bg_label">BG</string>
     <string name="calibration">Kalibrering</string>
     <string name="alarminxmin">Kør alarm om %1$d min</string>
-    <string name="treatmentdeliveryerror">Bolus fejl. Undersøg manuelt hvor meget insulin der er givet</string>
-    <string name="bolus_reminder">Boluspåminder</string>
     <string name="duration_label">Varighed</string>
     <string name="shortgramm">g</string>
     <string name="pumpsuspended">Pumpe er afbrudt</string>
@@ -128,24 +127,22 @@
     <string name="a11y_inrange">inden for området</string>
     <string name="a11y_low">lav</string>
     <string name="average">Gennemsnit</string>
-    <string name="tir">Tid i målområde</string>
     <string name="none"><![CDATA[<none>]]></string>
     <string name="remove_label">FJERN</string>
     <string name="activate_profile">Aktivér profil</string>
-    <string name="reset">nulstil</string>
     <string name="profileswitch_ismissing">Profilskift mangler. Venligst lav et profilskift eller tryk \"Aktiver profil\" i LokalProfil.</string>
     <string name="profile">Profil</string>
     <string name="select_for_removal">Vælg for at fjerne</string>
     <string name="confirm_remove_multiple_items">Er du sikker på, at du vil fjerne %1$d elementer?</string>
     <string name="overview_treatment_label">Behandling</string>
     <string name="copytolocalprofile">Opret ny profil fra denne profil?</string>
-    <string name="wear_wizard_settings">Guide indstillinger</string>
     <string name="bg_trend_label">15 min tendens</string>
     <string name="treatments_wizard_cob_label">COB</string>
     <string name="bolus_iob_label">Bolus IOB</string>
     <string name="treatments_wizard_basaliob_label">Basal IOB</string>
     <string name="invalid">UGYLDIG</string>
     <string name="login">Log ind</string>
+    <string name="prime_fill">Prime / Fyld</string>
     <string name="overview_insulin_label">Insulin</string>
     <string name="stoptemptarget">Stop midlertidig mål</string>
     <string name="closedloop">Lukket Loop</string>
@@ -154,7 +151,9 @@
     <string name="dia">DIA</string>
     <string name="ic_short">IC</string>
     <string name="isf_short">ISF</string>
-    <string name="suspendloop_label">Deaktiveret/Suspendéret Loop</string>
+    <string name="canceling_tbr_failed">Annullering af midlertidig basal mislykkedes</string>
+    <string name="canceling_eb_failed">Annullering af forlænget bolus mislykkedes</string>
+    <string name="virtualpump_uploadstatus_title">Upload pumpestatus til NS eller Tidepool</string>
     <string name="iob_label">Insulin om bord (IOB)</string>
     <!--    Protection-->
     <string name="wrongpassword">Forkert kodeord</string>
@@ -171,11 +170,13 @@
     <!--    ProfileFunction-->
     <string name="startprofile">Start profil %1$d%% i %2$d min</string>
     <!--    APSResult-->
+    <string name="cancel_temp">Annuller midlertidig basal</string>
     <string name="let_temp_basal_run">Lad midlertidig basal køre</string>
     <string name="rate">Dosis</string>
     <string name="duration">Varighed</string>
     <string name="reason">Årsag</string>
     <string name="nochangerequested">Ingen ændring efterspurgt</string>
+    <!--    Insulin / Concentration-->
     <!--    ProfileSwitch-->
     <string name="zerovalueinprofile">Ugyldig profil: %1$s</string>
     <!--    Temptarget-->
@@ -192,9 +193,12 @@
     <string name="careportal_note_message">Notat : %1$s</string>
     <string name="careportal_question_message">Spørgsmål : %1$s</string>
     <string name="careportal_exercise_message">Motion: %1$s</string>
+    <string name="careportal_pump_site_change">Skift indstikssted</string>
+    <string name="cgm_sensor_insert">CGM Sensor Indsæt</string>
     <string name="careportal_cgmsensorstart">CGM Sensor Start</string>
     <string name="careportal_cgm_sensor_stop">CGM Sensor Stop</string>
     <string name="careportal_dad_alert">Diabeteshund alarm</string>
+    <string name="careportal_insulin_cartridge_change">Skift af insulinampul</string>
     <string name="careportal_profileswitch">Profilskift</string>
     <string name="careportal_snackbolus">Snack Bolus</string>
     <string name="careportal_mealbolus">Måltidsbolus</string>
@@ -204,6 +208,8 @@
     <string name="careportal_tempbasalend">Midlertidig basal slut</string>
     <string name="careportal_carbscorrection">Korrektion for kulhydrater</string>
     <string name="careportal_openapsoffline">OpenAPS Offline</string>
+    <string name="pump_battery_change">Skift af pumpebatteri</string>
+    <string name="temporary_target">Midlertidigt mål</string>
     <string name="careportal_temporarytargetvalue">Midlertidig mål værdi</string>
     <string name="careportal_temporarytargetcancel">Afslut midlertidigt mål</string>
     <string name="boluswizard">Bolusberegner</string>
@@ -232,10 +238,10 @@
     <!--    CarbsReq-->
     <string name="carbsreq">%1$d g ekstra kulhydrater kræves inden for %2$d minutter</string>
     <!--    TDDStatsActivity-->
+    <string name="cumulative_tdd">Akkumuleret TDD</string>
     <string name="expweight">Eksponentielt Vægtet TDD</string>
     <string name="basalrate">Basal</string>
     <string name="bolus">Bolus</string>
-    <string name="tdd">TDD</string>
     <string name="ratio">Ratio</string>
     <string name="amount_days"># Dage</string>
     <string name="weight">Vægt</string>
@@ -264,7 +270,6 @@
     <string name="uel_lgs_loop_mode">LGS LOOP MODUS</string>
     <string name="uel_open_loop_mode">ÅBEN LOOP MODUS</string>
     <string name="uel_loop_disabled">LOOP DEAKTIVERET</string>
-    <string name="uel_loop_enabled">LOOP AKTIVERET</string>
     <string name="uel_reconnect">GENFORBIND</string>
     <string name="uel_disconnect">AFBRYD</string>
     <string name="uel_resume">FORTSÆT</string>
@@ -317,6 +322,7 @@
     <string name="uel_export_settings">EKSPORTER INDSTILLINGER</string>
     <string name="uel_import_settings">IMPORTER INDSTILLINGER</string>
     <string name="uel_reset_databases">NULSTIL DATABASER</string>
+    <string name="uel_cleanup_databases">RENS DATABASER</string>
     <string name="uel_export_databases">EKSPORTER DATABASER</string>
     <string name="uel_import_databases">IMPORTER DATABASER</string>
     <string name="uel_otp_export">OTP EKSPORT</string>
@@ -352,11 +358,15 @@
     <string name="valueoutofrange">»%1$s« er uden for absolutte grænser</string>
     <string name="value_out_of_hard_limits">»%1$s« %2$.2f er uden for absolutte grænser</string>
     <string name="basal_value">Basalværdi</string>
+    <!-- Profile validation -->
     <!-- Command Queue + readStatus reasons -->
     <string name="bolus_u_min">BOLUS %1$.2f IE</string>
     <string name="carbs_g">KH %1$d g</string>
     <string name="extended_bolus_u_min">FORLÆNGET BOLUS %1$.2f IE %2$d min</string>
     <string name="load_events">INDLÆS BEGIVENHEDER</string>
+    <string name="clear_alarms">RYD ALARMER</string>
+    <string name="deactivate">DEAKTIVÉR</string>
+    <string name="update_time">OPDATÉR TID</string>
     <string name="load_history">INDLÆS HISTORIK %1$d</string>
     <string name="load_tdds">LÆS TDD\'er</string>
     <string name="set_profile">SÆT PROFIL</string>
@@ -378,58 +388,18 @@
     <string name="a11y_user">bruger</string>
     <!-- Autotune -->
     <string name="autotune">Autotune</string>
-    <string name="autotune_description">Hjælp til potentielle justeringer af profil (ISF, KH-ratio og basalrater)</string>
-    <string name="autotune_shortname">AT</string>
-    <string name="autotune_settings">Autotune indstillinger</string>
-    <string name="autotune_auto_title">Automatisk profilskift</string>
-    <string name="autotune_auto_summary">Hvis aktiveret, vil Autotune automatisk opdatere og skifte til input-profil efter beregning ud fra en automatiseringsregel.</string>
-    <string name="autotune_categorize_uam_as_basal_title">Kategoriser UAM som basal</string>
-    <string name="autotune_categorize_uam_as_basal_summary">Aktiver kun hvis du har indtastet alle kulhydrater på pålidelig vis. Med denne indstilling vil pludselige stigninger set af Autotune, blive brugt til at anbefale ændringer af basal rate.</string>
-    <string name="autotune_tune_insulin_curve_title">Tilpas insulinkurven</string>
-    <string name="autotune_tune_insulin_curve_summary">Aktiver kun hvis du bruger egen peak værdi. Dette alternativ vil justere peak og DIA-varigheden</string>
-    <string name="autotune_default_tune_days_title">Antal dage med data</string>
-    <string name="autotune_circadian_ic_isf_title">Anvend gennemsnitligt resultat i døgnbaseret IC/ISF</string>
-    <string name="autotune_circadian_ic_isf_summary">Autotune vil ikke justere døgnrytme variationer, denne indstilling benytter gennemsnitlige værdier til justering af IC og ISF til din døgnrytme input profil</string>
-    <string name="autotune_additional_log_title">Inkludér flere logoplysninger for fejlfinding</string>
-    <string name="autotune_additional_log_summary">Aktivér kun hvis udviklerne beder dig om det, for at sende flere logoplysninger til at hjælpe med at fejlfinde Autotune plugin</string>
-    <string name="autotune_default_tune_days_summary">Standard antal dage data der skal behandles af Autotune (op til 30)</string>
-    <string name="autotune_tunedprofile_name">Justeret</string>
-    <string name="autotune_profile">Profil :</string>
     <string name="autotune_tune_days">Justerings dage :</string>
-    <string name="autotune_last_run">Sidst kørt :</string>
-    <string name="autotune_warning">Advarsel :</string>
     <string name="autotune_select_profile">Vælg profil, der skal justeres</string>
-    <string name="autotune_ic_warning">Autotune fungerer med kun én IC-værdi, din profil har %1$d værdier. Gennemsnitsværdi er %2$.2fg/E</string>
-    <string name="autotune_isf_warning">Autotune virker med kun én ISF-værdi, din profil har %1$d værdier. Gennemsnitlig værdi er %2$.1f%3$s/E</string>
-    <string name="autotune_error">Fejl i inputdata, prøv at køre autotune igen eller reducer antallet af dage</string>
-    <string name="autotune_warning_during_run">Automatisk beregning startet, vær venligst tålmodig</string>
-    <string name="autotune_warning_after_run">Kontrollér resultaterne omhyggeligt, før du bruger dem!</string>
-    <string name="autotune_partial_result">Delvis resultat dag %1$d / %2$d justeret</string>
-    <string name="autotune_result">Resultat: %1$s</string>
-    <string name="autotune_param">Parameter</string>
-    <string name="autotune_percent">%</string>
-    <string name="autotune_missing">Mangler</string>
-    <string name="autotune_profile_name">Autotune profil %1$s</string>
-    <string name="autotune_run">Kør Autotune</string>
-    <string name="autotune_check_input_profile_button">Tjek input-profil</string>
-    <string name="autotune_compare_profile">Sammenlign profiler</string>
-    <string name="autotune_copy_localprofile_button">Kopier til lokal profil</string>
-    <string name="autotune_update_input_profile_button">Opdater input profil</string>
-    <string name="autotune_revert_input_profile_button">Gendan input profil</string>
-    <string name="autotune_copy_local_profile_message">Opret en ny lokal profil ud fra denne Autotune profil?</string>
-    <string name="autotune_update_local_profile_message">Opdater %1$s profil med Autotune profil?</string>
-    <string name="autotune_revert_local_profile_message">Gendan %1$s profil med Input-profilen?</string>
-    <string name="autotune_profile_invalid">Profil ugyldig</string>
-    <string name="autotune_run_with_error">Fejl under sidste Autotune kørsel</string>
-    <string name="autotune_run_cancelled">Autotune kører allerede, annulleret</string>
     <!-- Alerts -->
-    <string name="raise_notifications_as_android_notifications">Brug systemnotifikationer til advarsler og notifikationer</string>
     <string name="urgent_alarm">Akut alarm</string>
     <string name="info">INFO</string>
     <!-- BolusWizard -->
+    <string name="bolus_advisor">Bolus-rådgiver</string>
+    <string name="bolus_advisor_message">Du har høj glycæmi. I stedet for at spise nu anbefales det at vente på bedre glycæmi. Ønsker du at lave en korrektionsbolus nu og minde dig om, hvornår det er tid til at spise? I dette tilfælde vil ingen kulhydrater blive registreret, og du skal bruge guiden igen, når vi påminder dig.</string>
     <string name="cobvsiob">COB vs IOB</string>
     <string name="slowabsorptiondetected"><![CDATA[<font color=\'%1$s\'>!!!!! Langsomme kulhydrater opdaget: %2$d%% af tiden. Dobbelttjek din beregning. COB kan overvurderes og der kan således gives mere insulin !!!!!</font>]]></string>
-    <string name="partialboluswizard">Afgiv denne del af bolusguidens resultat [%]</string>
+    <string name="bolus_constraint_applied_warn">Bolus-begrænsning anvendt: %1$.2f IE til %2$.2f IE</string>
+    <string name="bolus_recorded_only">Bolus registreres kun (bliver ikke leveret af pumpe)</string>
     <string name="advisoralarm">Kør alarm når det er tid til at spise</string>
     <string name="no_action_selected">Ingen handling valgt, intet vil ske</string>
     <string name="wizard_no_actual_bg">Ingen nylig BG til at basere beregningen på!</string>
@@ -448,11 +418,19 @@
     <string name="wizard_explain_tt">Midl: %1$s</string>
     <string name="wizard_explain_tt_to">%1$s til %2$s</string>
     <string name="wizard_pump_not_available">Ingen pumpe tilgængelig!</string>
+    <string name="quickwizard">QuickWizard</string>
     <!--    Preferences-->
+    <string name="child">Barn</string>
     <string name="teenage">Teeanger</string>
     <string name="adult">Voksen</string>
+    <string name="resistant_adult">Insulinresistent voksen</string>
     <string name="pregnant">Graviditet</string>
+    <string name="patient_age_summary">Vælg venligst patienttype til opsætning af sikkerhedsgrænser</string>
+    <string name="max_bolus_title">Maks tilladt bolus [IE]</string>
+    <string name="max_carbs_title">Maks tilladte kulhydrater [g]</string>
+    <string name="patient_type">Patienttype</string>
     <!--    Protection-->
+    <string name="unlock_settings">Lås indstillinger op</string>
     <!--    Pumps -->
     <string name="battery_label">Batteri</string>
     <string name="reservoir_label">Reservoir</string>
@@ -479,6 +457,7 @@
     <string name="pump_busy">Pumpe er optaget</string>
     <string name="connection_error">Forbindelsesfejl til pumpe</string>
     <string name="reading_pump_history">Læser pumpehistorik</string>
+    <string name="password_cleared">Adgangskode slettet!</string>
     <string name="pairing">Parring</string>
     <string name="initializing">Initialiserer ...</string>
     <!--    Constraints-->
@@ -487,18 +466,23 @@
     <string name="limitingpercentrate">Begrænser maks. procent til %1$d%% på grund af %2$s</string>
     <string name="itmustbepositivevalue">det skal være en positiv værdi</string>
     <string name="limitingbolus">Begrænser bolus til %1$.1f IE på grund af %2$s</string>
-    <!-- Locale -->
     <!--    Dialogs-->
     <string name="confirmation">Bekræftelse</string>
     <string name="message">Besked</string>
     <string name="ok">OK</string>
     <string name="cancel">Annuller</string>
-    <string name="dismiss">AFVIS</string>
     <string name="yes">Ja</string>
     <string name="no">Nej</string>
     <string name="close">Luk</string>
     <!-- TwoMessagesDialog -->
     <string name="password_preferences_decrypt_prompt">Du vil blive bedt om hovedadgangskode, som er nødvendig for at dekryptere importerede præferencer.</string>
+    <!-- <unattended_export> -->
+    <!-- Export dialog strings -->
+    <!-- <unattended_export result messages> -->
+    <!-- Cloud export -->
+    <!-- Export destination chip labels -->
+    <!-- Maintenance bottom sheet descriptions -->
+    <!-- Cloud directory dialog (Compose) -->
     <!-- NumberPicker -->
     <string name="a11y_min_button_description">fald %1$s af %2$s</string>
     <string name="a11y_plus_button_description">stigning %1$s af %2$s</string>
@@ -519,9 +503,14 @@
     <string name="location_not_found_message">Placeringen skal være aktiveret, hvis Bluetooth-opdagelsen skal fungere på nyere enheder. AAPS sporer ikke din placering, og det kan deaktiveres efter parring er lykkedes.</string>
     <!--    Preferences -->
     <string name="nav_plugin_preferences">Plugin indstillinger</string>
-    <!-- SmsCommunicator -->
-    <string name="smscommunicator_missingsmspermission">Manglende sms tilladelse</string>
+    <!-- Navigation -->
+    <!-- Alerts -->
+    <!-- Actions Screen -->
+    <!-- Site Rotation -->
     <!-- About -->
+    <string name="cta_dont_kill_my_app_info">Dræb ikke min app?</string>
+    <string name="fabric_upload_disabled">Upload af Crash logs deaktiveret!</string>
+    <string name="about_link_urls">\n\nDocumentation:\nhttps://wiki.aaps.app\n\nFacebook:\nhttps://www.facebook.com/groups/AndroidAPSUsers</string>
     <plurals name="days">
         <item quantity="one">%1$d dag</item>
         <item quantity="other">%1$d dage</item>
@@ -535,4 +524,33 @@
         <item quantity="other">%1$d minutter</item>
     </plurals>
     <!--    Maintenance-->
+    <string name="cleanup_db_confirm">Vil du rydde op i databasen?\nDet vil fjerne sporede ændringer og historiske data ældre end 3 måneder.</string>
+    <string name="cleanup_db_confirm_sync">Vil du rydde op i databasen?\nDet vil fjerne sporede ændringer og historiske data ældre end 3 måneder.\nAt gøre dette vil også sætte hastigheden drastisk op på fuld synkronisering.</string>
+    <string name="cleared_entries">Slettede poster</string>
+    <!--    Weekday-->
+    <string name="weekday_sunday_short">Søn</string>
+    <string name="weekday_saturday_short">Lør</string>
+    <string name="weekday_friday_short">Fre</string>
+    <string name="weekday_thursday_short">Tor</string>
+    <string name="weekday_wednesday_short">Ons</string>
+    <string name="weekday_tuesday_short">Tir</string>
+    <string name="weekday_monday_short">Man</string>
+    <!-- WeekdayPicker -->
+    <string name="monday_short">M</string>
+    <string name="tuesday_short">T</string>
+    <string name="wednesday_short">O</string>
+    <string name="thursday_short">T</string>
+    <string name="friday_short">F</string>
+    <string name="saturday_short">L</string>
+    <string name="sunday_short">S</string>
+    <!--    DecimalFormatterImpl -->
+    <string name="format_insulin_units1">%1$.1f IE</string>
+    <string name="format_insulin_units">%1$.2f IE</string>
+    <!--    Playback-->
+    <!-- ProfileEditor -->
+    <!--    Search-->
+    <!--    Log Settings-->
+    <!--    Maintenance-->
+    <!-- Import settings screen -->
+    <!--    BLE Scan Step (shared pump pairing) -->
 </resources>

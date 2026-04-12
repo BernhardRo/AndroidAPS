@@ -2,7 +2,7 @@
 <resources>
     <string name="automation_short">Auto</string>
     <string name="automation">Automatização</string>
-    <string name="automation_description">Tarefas de automação definidas pelo utilizador</string>
+    <string name="automation_description">Tarefas de automação definidas pelo usuário</string>
     <string name="automation_missing_task_name">Insira um nome da tarefa.</string>
     <string name="automation_missing_trigger">Especifique pelo menos um gatilho.</string>
     <string name="automation_missing_action">Especifique pelo menos uma acção.</string>
@@ -63,13 +63,6 @@
     <string name="time_range">Intervalo de tempo</string>
     <string name="timerange_value">O tempo está entre %1$s e %2$s</string>
     <string name="between">Entre </string>
-    <string name="weekday_sunday_short">Dom</string>
-    <string name="weekday_saturday_short">Sáb</string>
-    <string name="weekday_friday_short">Sex</string>
-    <string name="weekday_thursday_short">Qui</string>
-    <string name="weekday_wednesday_short">Qua</string>
-    <string name="weekday_tuesday_short">Ter</string>
-    <string name="weekday_monday_short">Seg</string>
     <string name="delete_short">APAGAR</string>
     <string name="add_short">ADICIONAR</string>
     <string name="copy_short">COPIAR</string>
@@ -84,14 +77,14 @@
     <string name="deltalabel_u">Diferença Glic. [%1$s]</string>
     <string name="currentlocation">Localização actual</string>
     <string name="location">Localização</string>
-    <string name="latitude_short">Lat.:</string>
-    <string name="longitude_short">Long.:</string>
     <string name="glucose_u">Glicose [%1$s]:</string>
     <string name="target_u">Alvo [%1$s]:</string>
     <string name="lastboluslabel">Último bolus atrás</string>
     <string name="lastboluscompared">Última vez do bolus %1$s %2$s atrás</string>
     <string name="triggercoblabel">CA</string>
     <string name="cobcompared">COB %1$s %2$.0f</string>
+    <string name="triggerHeartRate">Frequência cardíaca</string>
+    <string name="triggerHeartRateDesc">FC %1$s %2$.0f</string>
     <string name="iob_u">IOB [U]:</string>
     <string name="distance_short">Dist [m]:</string>
     <string name="recurringTime">Tempo recorrente</string>
@@ -109,24 +102,24 @@
     <string name="automation_event">Evento de automação</string>
     <string name="reorder_label">Reordenar</string>
     <string name="user_action">Ação do usuário</string>
-    <string name="remove_automation">Remover Automação</string>
-    <string name="sort_automation">Classificar automação</string>
     <string name="remove_selected_items">Remover itens selecionados</string>
     <string name="count_selected">Selecionado %1$d</string>
     <string name="system_automation">Automação do Sistema</string>
     <string name="run_automations">Executar automações</string>
     <string name="add_automation">Adicionar regra</string>
     <string name="stop_processing">Parar processamento</string>
-    <!-- WeekdayPicker -->
-    <string name="monday_short">2a</string>
-    <string name="tuesday_short">3a</string>
-    <string name="wednesday_short">4a</string>
-    <string name="thursday_short">5a</string>
-    <string name="friday_short">6a</string>
-    <string name="saturday_short">Sáb</string>
-    <string name="sunday_short">Dom</string>
     <!--    Reminders-->
     <string name="time_to_eat">Hora de comer!\nAbra o assistente de bolus e faça o cálculo novamente.</string>
     <string name="time_to_bolus">Hora do bolus!\nAbra o assistente de bolus e faça o cálculo novamente.</string>
     <string name="error_setting_reminder">Erro ao definir alarme futuro</string>
+    <!--    Autotune-->
+    <string name="autotune_run">Executar Autotune</string>
+    <string name="autotune_run_without_autoswitch">Autotune executado sem troca de perfil</string>
+    <string name="autotune_run_with_autoswitch">Autotune executado e perfil alterado automaticamente</string>
+    <string name="autotune_run_with_error">Erro durante a última execução do Autotune</string>
+    <string name="autotune_run_cancelled">Outra execução de Autotune foi detectada, execução cancelada</string>
+    <!--    Steps count-->
+    <!--    SMB mode-->
+    <!--    Map Picker (OpenStreetMap)-->
+    <!-- Permission rationales -->
 </resources>

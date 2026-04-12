@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    tools:context="info.nightscout.plugins.constraints.objectives.ObjectivesFragment">
+    tools:context=".objectives.ObjectivesFragment">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -17,6 +17,7 @@
 
         <CheckBox
             android:id="@+id/fake"
+            style="@style/Widget.App.CheckBox"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginEnd="16dp"

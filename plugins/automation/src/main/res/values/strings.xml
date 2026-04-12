@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="key_location" translatable="false">location</string>
-
     <string name="automation_short">Auto</string>
     <string name="automation">Automation</string>
     <string name="automation_description">User defined automation tasks</string>
     <string name="automation_missing_task_name">Please enter a task name.</string>
     <string name="automation_missing_trigger">Please specify at least one trigger.</string>
     <string name="automation_missing_action">Please specify at least one action.</string>
+    <string name="exportsettings_message">Settings Export: %1$s</string>
+    <string name="export_settings_short">Text in treatments:</string>
     <string name="alarm_message">Alarm: %1$s</string>
     <string name="alarm_short">Alarm:</string>
     <string name="message_short">Msg:</string>
@@ -47,10 +47,6 @@
     <string name="or">Or</string>
     <string name="xor">Exclusive or</string>
     <string name="atspecifiedtime">At %1$s</string>
-    <string name="use_network_location">Use network location</string>
-    <string name="use_gps_location">Use GPS location</string>
-    <string name="use_passive_location">Use passive location</string>
-    <string name="locationservice">Location service</string>
     <string name="onconnect">On connect</string>
     <string name="ondisconnect">On disconnect</string>
     <string name="short_avgdelta">Short avg. delta</string>
@@ -65,13 +61,6 @@
     <string name="time_range">Time range</string>
     <string name="timerange_value">Time is between %1$s and %2$s</string>
     <string name="between">Between </string>
-    <string name="weekday_sunday_short">Sun</string>
-    <string name="weekday_saturday_short">Sat</string>
-    <string name="weekday_friday_short">Fri</string>
-    <string name="weekday_thursday_short">Thu</string>
-    <string name="weekday_wednesday_short">Wed</string>
-    <string name="weekday_tuesday_short">Tue</string>
-    <string name="weekday_monday_short">Mon</string>
     <string name="delete_short">DEL</string>
     <string name="add_short">ADD</string>
     <string name="copy_short">COPY</string>
@@ -85,9 +74,8 @@
     <string name="deltalabel">BG difference</string>
     <string name="deltalabel_u">BG difference [%1$s]</string>
     <string name="currentlocation">Current Location</string>
+    <string name="choose_from_map">Choose from map</string>
     <string name="location">Location</string>
-    <string name="latitude_short">Lat:</string>
-    <string name="longitude_short">Lon:</string>
     <string name="glucose_u">Glucose [%1$s]:</string>
     <string name="target_u">Target [%1$s]:</string>
     <string name="lastboluslabel">Last bolus ago</string>
@@ -96,6 +84,20 @@
     <string name="cobcompared">COB %1$s %2$.0f</string>
     <string name="triggerHeartRate">Heart Rate</string>
     <string name="triggerHeartRateDesc">HR %1$s %2$.0f</string>
+    <string name="triggerSensorAgeLabel">Sensor age</string>
+    <string name="triggerSensorAgeDesc">Sensor age %1$s %2$.1f hour</string>
+    <string name="triggerCannulaAgeLabel">Cannula age</string>
+    <string name="triggerCannulaAgeDesc">Cannula age %1$s %2$.1f hour</string>
+    <string name="triggerPodChangeLabel">Pod activation</string>
+    <string name="triggerPodChangeDesc">Pod activated</string>
+    <string name="triggerInsulinAgeLabel">Insulin age</string>
+    <string name="triggerInsulinAgeDesc">Insulin age %1$s %2$.1f hour</string>
+    <string name="triggerPumpBatteryAgeLabel">Pump battery age</string>
+    <string name="triggerPumpBatteryAgeDesc">Pump battery age %1$s %2$.1f hour</string>
+    <string name="triggerReservoirLevelLabel">Reservoir level</string>
+    <string name="triggerReservoirLevelDesc">Reservoir level %1$s %2$.0f</string>
+    <string name="triggerPumpBatteryLevelLabel">Pump battery level</string>
+    <string name="triggerPumpBatteryLevelDesc">Pump battery level %1$s %2$.0f</string>
     <string name="iob_u">IOB [U]:</string>
     <string name="distance_short">Dist [m]:</string>
     <string name="recurringTime">Recurring time</string>
@@ -112,10 +114,7 @@
     <string name="preconditions">Preconditions:</string>
     <string name="automation_event">Automation event</string>
     <string name="reorder_label">Reorder</string>
-    <string name="key_automation_settings" translatable="false">automation_settings</string>
     <string name="user_action">User action</string>
-    <string name="remove_automation">Remove automation</string>
-    <string name="sort_automation">Sort automation</string>
     <string name="remove_selected_items">Remove selected items</string>
     <string name="count_selected">%1$d selected</string>
     <string name="system_automation">System automation</string>
@@ -123,18 +122,38 @@
     <string name="add_automation">Add rule</string>
     <string name="stop_processing">Stop processing</string>
 
-    <!-- WeekdayPicker -->
-    <string name="monday_short">M</string>
-    <string name="tuesday_short">T</string>
-    <string name="wednesday_short">W</string>
-    <string name="thursday_short">T</string>
-    <string name="friday_short">F</string>
-    <string name="saturday_short">S</string>
-    <string name="sunday_short">S</string>
-
     <!--    Reminders-->
     <string name="time_to_eat">Time to eat!\nRun Bolus wizard and do calculation again.</string>
     <string name="time_to_bolus">Time to bolus!\nRun Bolus wizard and do calculation again.</string>
     <string name="error_setting_reminder">Error while setting future alarm</string>
+
+    <!--    Autotune-->
+    <string name="autotune_profile_name">Autotune profile %1$s</string>
+    <string name="autotune_run">Run Autotune</string>
+    <string name="autotune_run_without_autoswitch">Autotune ran without profile switch</string>
+    <string name="autotune_run_with_autoswitch">Autotune ran and profile automatically switched</string>
+    <string name="autotune_run_with_error">Error during last Autotune run</string>
+    <string name="autotune_run_cancelled">Another run of Autotune is detected, run cancelled</string>
+
+    <!--    Steps count-->
+    <string name="triggerStepsCountLabel">Steps Count</string>
+    <string name="triggerStepsCountDesc">Steps count per %1$s minutes %2$s %3$.0f</string>
+    <string name="triggerStepsCountDropdownLabel">Measurement Duration</string>
+
+    <!--    SMB mode-->
+    <string name="changeSmbState">Enable/disable SMB</string>
+    <string name="changeSmbTo">Change SMB to %1$s</string>
+    <string name="newSmbMode">New SMB mode:</string>
+    <string name="on">ON</string>
+    <string name="off">OFF</string>
+
+    <!--    Map Picker (OpenStreetMap)-->
+    <string name="pick_from_map">Pick from map</string>
+    <string name="tap_to_select_location">Tap on the map to select a location</string>
+    <string name="selected_coords">Selected: %1$.6f, %2$.6f</string>
+    <!-- Permission rationales -->
+    <string name="permission_location_title">Location</string>
+    <string name="permission_location_description">Needed for location-based automation triggers and WiFi network identification</string>
+    <string name="permission_background_location_description">Needed for automation triggers to work when the app is in the background</string>
 
 </resources>

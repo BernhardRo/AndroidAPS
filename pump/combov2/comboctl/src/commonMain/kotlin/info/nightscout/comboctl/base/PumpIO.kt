@@ -19,14 +19,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.datetime.Clock
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.offsetAt
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 private val logger = Logger.get("PumpIO")
 
 private object PumpIOConstants {
+
     const val MAX_NUM_REGULAR_CONNECTION_ATTEMPTS = 3
     const val NONCE_INCREMENT = 500
 }
@@ -123,6 +125,7 @@ class PumpIO(
     private val onNewDisplayFrame: (displayFrame: DisplayFrame?) -> Unit,
     private val onPacketReceiverException: (e: TransportLayer.PacketReceiverException) -> Unit
 ) {
+
     // Mutex to synchronize sendPacketWithResponse and sendPacketWithoutResponse calls.
     private val sendPacketMutex = Mutex()
 
@@ -151,6 +154,7 @@ class PumpIO(
 
     // Job representing the coroutine that runs the CMD ping heartbeat.
     private var cmdPingHeartbeatJob: Job? = null
+
     // Job representing the coroutine that runs the RT keep-alive heartbeat.
     private var rtKeepAliveHeartbeatJob: Job? = null
 
@@ -196,6 +200,7 @@ class PumpIO(
      * The mode the pump can operate in.
      */
     enum class Mode(val str: String) {
+
         REMOTE_TERMINAL("REMOTE_TERMINAL"),
         COMMAND("COMMAND");
 
@@ -206,6 +211,7 @@ class PumpIO(
      * Current connection state.
      */
     enum class ConnectionState {
+
         DISCONNECTED,
         CONNECTING,
         CONNECTED,
@@ -317,6 +323,7 @@ class PumpIO(
      * @throws TransportLayer.PacketReceiverException if an exception
      *   is thrown while this function is waiting for a packet.
      */
+    @OptIn(ExperimentalTime::class)
     suspend fun performPairing(
         bluetoothFriendlyName: String,
         progressReporter: ProgressReporter<Unit>?,
@@ -521,7 +528,7 @@ class PumpIO(
             } catch (t: Throwable) {
                 logger(LogLevel.ERROR) {
                     "Pairing aborted due to throwable - sending CTRL_DISCONNECT to Combo; " +
-                    "throwable details: ${t.stackTraceToString()}"
+                        "throwable details: ${t.stackTraceToString()}"
                 }
                 throw t
             } finally {
@@ -709,12 +716,12 @@ class PumpIO(
                 } catch (e: TransportLayer.PacketReceiverException) {
                     logger(LogLevel.INFO) {
                         "Successfully set up Bluetooth socket, but attempting to send " +
-                        "the regular connection request packet failed; exception: ${e.cause}"
+                            "the regular connection request packet failed; exception: ${e.cause}"
                     }
                     logger(LogLevel.INFO) {
                         "Nonce might be wrong; incrementing nonce by ${PumpIOConstants.NONCE_INCREMENT} " +
-                        "and retrying (attempt $regularConnectionAttemptNr of " +
-                        "${PumpIOConstants.MAX_NUM_REGULAR_CONNECTION_ATTEMPTS})"
+                            "and retrying (attempt $regularConnectionAttemptNr of " +
+                            "${PumpIOConstants.MAX_NUM_REGULAR_CONNECTION_ATTEMPTS})"
                     }
 
                     // Call this to reset the states in the transport layer IO object
@@ -856,12 +863,12 @@ class PumpIO(
      */
     suspend fun readCMDErrorWarningStatus(): ApplicationLayer.CMDErrorWarningStatus =
         runPumpIOCall("get error/warning status", Mode.COMMAND) {
-        val packet = sendPacketWithResponse(
-            ApplicationLayer.createCMDReadErrorWarningStatusPacket(),
-            ApplicationLayer.Command.CMD_READ_ERROR_WARNING_STATUS_RESPONSE
-        )
-        return@runPumpIOCall ApplicationLayer.parseCMDReadErrorWarningStatusResponsePacket(packet)
-    }
+            val packet = sendPacketWithResponse(
+                ApplicationLayer.createCMDReadErrorWarningStatusPacket(),
+                ApplicationLayer.Command.CMD_READ_ERROR_WARNING_STATUS_RESPONSE
+            )
+            return@runPumpIOCall ApplicationLayer.parseCMDReadErrorWarningStatusResponsePacket(packet)
+        }
 
     /**
      * Requests a CMD history delta.
@@ -979,13 +986,13 @@ class PumpIO(
     suspend fun getCMDCurrentBolusDeliveryStatus(): ApplicationLayer.CMDBolusDeliveryStatus =
         runPumpIOCall("get current bolus delivery status", Mode.COMMAND) {
 
-        val packet = sendPacketWithResponse(
-            ApplicationLayer.createCMDGetBolusStatusPacket(),
-            ApplicationLayer.Command.CMD_GET_BOLUS_STATUS_RESPONSE
-        )
+            val packet = sendPacketWithResponse(
+                ApplicationLayer.createCMDGetBolusStatusPacket(),
+                ApplicationLayer.Command.CMD_GET_BOLUS_STATUS_RESPONSE
+            )
 
-        return@runPumpIOCall ApplicationLayer.parseCMDGetBolusStatusResponsePacket(packet)
-    }
+            return@runPumpIOCall ApplicationLayer.parseCMDGetBolusStatusResponsePacket(packet)
+        }
 
     /**
      * Instructs the pump to deliver the specified standard bolus amount.
@@ -1028,18 +1035,18 @@ class PumpIO(
     ): Boolean =
         runPumpIOCall("deliver standard bolus", Mode.COMMAND) {
 
-        val packet = sendPacketWithResponse(
-            ApplicationLayer.createCMDDeliverBolusPacket(
-                totalBolusAmount,
-                immediateBolusAmount,
-                durationInMinutes,
-                bolusType
-            ),
-            ApplicationLayer.Command.CMD_DELIVER_BOLUS_RESPONSE
-        )
+            val packet = sendPacketWithResponse(
+                ApplicationLayer.createCMDDeliverBolusPacket(
+                    totalBolusAmount,
+                    immediateBolusAmount,
+                    durationInMinutes,
+                    bolusType
+                ),
+                ApplicationLayer.Command.CMD_DELIVER_BOLUS_RESPONSE
+            )
 
-        return@runPumpIOCall ApplicationLayer.parseCMDDeliverBolusResponsePacket(packet)
-    }
+            return@runPumpIOCall ApplicationLayer.parseCMDDeliverBolusResponsePacket(packet)
+        }
 
     /**
      * Cancels an ongoing bolus.
@@ -1329,7 +1336,7 @@ class PumpIO(
                             ApplicationLayer.createCTRLDeactivateServicePacket(
                                 when (modeToDeactivate) {
                                     Mode.REMOTE_TERMINAL -> ApplicationLayer.ServiceID.RT_MODE
-                                    Mode.COMMAND -> ApplicationLayer.ServiceID.COMMAND_MODE
+                                    Mode.COMMAND         -> ApplicationLayer.ServiceID.COMMAND_MODE
                                 }
                             )
                         )
@@ -1348,7 +1355,7 @@ class PumpIO(
                         ApplicationLayer.createCTRLActivateServicePacket(
                             when (newMode) {
                                 Mode.REMOTE_TERMINAL -> ApplicationLayer.ServiceID.RT_MODE
-                                Mode.COMMAND -> ApplicationLayer.ServiceID.COMMAND_MODE
+                                Mode.COMMAND         -> ApplicationLayer.ServiceID.COMMAND_MODE
                             }
                         )
                     )
@@ -1362,7 +1369,7 @@ class PumpIO(
                     if (receivedAppLayerPacket.command == ApplicationLayer.Command.CTRL_DEACTIVATE_SERVICE_RESPONSE) {
                         logger(LogLevel.INFO) {
                             "Got CTRL_DEACTIVATE_SERVICE_RESPONSE packet even though CTRL_ACTIVATE_SERVICE_RESPONSE was expected; " +
-                            "suspected to be a Combo bug; trying to receive packet again as a workaround"
+                                "suspected to be a Combo bug; trying to receive packet again as a workaround"
                         }
                         // Retry receiving.
                         receivedAppLayerPacket = transportLayerIO.receive(TransportLayer.Command.DATA).toAppLayerPacket()
@@ -1382,13 +1389,37 @@ class PumpIO(
             if (runHeartbeat) {
                 logger(LogLevel.DEBUG) { "Resetting heartbeat" }
                 when (newMode) {
-                    Mode.COMMAND -> startCMDPingHeartbeat()
+                    Mode.COMMAND         -> startCMDPingHeartbeat()
                     Mode.REMOTE_TERMINAL -> startRTKeepAliveHeartbeat()
                 }
             }
         } catch (t: Throwable) {
             _connectionState.value = ConnectionState.FAILED
             throw t
+        }
+    }
+
+    /**
+     * Run a block with the heartbeat disabled, and enable the heartbeat again once the block is finished.
+     *
+     * If no heartbeat was running prior to the block invocation, this does not enable the heartbeat.
+     *
+     * @param block Block to run without a heartbeat.
+     */
+    suspend fun runWithoutHeartbeat(block: (suspend () -> Unit)) {
+        val mode = _currentModeFlow.value
+        when (mode) {
+            Mode.COMMAND         -> stopCMDPingHeartbeat()
+            Mode.REMOTE_TERMINAL -> stopRTKeepAliveHeartbeat()
+            else                 -> Unit
+        }
+
+        block()
+
+        when (mode) {
+            Mode.COMMAND         -> startCMDPingHeartbeat()
+            Mode.REMOTE_TERMINAL -> startRTKeepAliveHeartbeat()
+            else                 -> Unit
         }
     }
 
@@ -1447,7 +1478,7 @@ class PumpIO(
                     "Waiting for application layer packet (will arrive in a transport layer DATA packet)"
                 else
                     "Waiting for application layer ${expectedResponseCommand.name} " +
-                    "packet (will arrive in a transport layer DATA packet)"
+                        "packet (will arrive in a transport layer DATA packet)"
             }
 
             val receivedAppLayerPacket = transportLayerIO.receive(TransportLayer.Command.DATA).toAppLayerPacket()
@@ -1533,7 +1564,7 @@ class PumpIO(
                     TransportLayer.IO.ReceiverBehavior.FORWARD_PACKET
                 }
 
-                ApplicationLayer.Command.RT_DISPLAY -> {
+                ApplicationLayer.Command.RT_DISPLAY                     -> {
                     processRTDisplayPayload(
                         ApplicationLayer.parseRTDisplayPacket(tpLayerPacket.toAppLayerPacket())
                     )
@@ -1546,7 +1577,7 @@ class PumpIO(
                     TransportLayer.IO.ReceiverBehavior.DROP_PACKET
                 }
 
-                ApplicationLayer.Command.RT_BUTTON_CONFIRMATION -> {
+                ApplicationLayer.Command.RT_BUTTON_CONFIRMATION         -> {
                     logger(LogLevel.VERBOSE) { "Got RT_BUTTON_CONFIRMATION packet from the Combo" }
                     // Signal the arrival of the button confirmation.
                     // (Either RT_BUTTON_CONFIRMATION or RT_DISPLAY
@@ -1558,7 +1589,7 @@ class PumpIO(
                 }
 
                 // We do not care about keep-alive packets from the Combo.
-                ApplicationLayer.Command.RT_KEEP_ALIVE -> {
+                ApplicationLayer.Command.RT_KEEP_ALIVE                  -> {
                     logger(LogLevel.VERBOSE) { "Got RT_KEEP_ALIVE packet from the Combo; ignoring" }
                     TransportLayer.IO.ReceiverBehavior.DROP_PACKET
                 }
@@ -1567,7 +1598,7 @@ class PumpIO(
                 // are purely for information. We just log them and
                 // otherwise ignore them.
 
-                ApplicationLayer.Command.RT_AUDIO -> {
+                ApplicationLayer.Command.RT_AUDIO                       -> {
                     logger(LogLevel.VERBOSE) {
                         val audioType = ApplicationLayer.parseRTAudioPacket(tpLayerPacket.toAppLayerPacket())
                         "Got RT_AUDIO packet with audio type ${audioType.toHexString(8)}; ignoring"
@@ -1576,15 +1607,15 @@ class PumpIO(
                 }
 
                 ApplicationLayer.Command.RT_PAUSE,
-                ApplicationLayer.Command.RT_RELEASE -> {
+                ApplicationLayer.Command.RT_RELEASE                     -> {
                     logger(LogLevel.VERBOSE) {
                         "Got ${ApplicationLayer.Command} packet with payload " +
-                                "${tpLayerPacket.toAppLayerPacket().payload.toHexString()}; ignoring"
+                            "${tpLayerPacket.toAppLayerPacket().payload.toHexString()}; ignoring"
                     }
                     TransportLayer.IO.ReceiverBehavior.DROP_PACKET
                 }
 
-                ApplicationLayer.Command.RT_VIBRATION -> {
+                ApplicationLayer.Command.RT_VIBRATION                   -> {
                     logger(LogLevel.VERBOSE) {
                         val vibrationType = ApplicationLayer.parseRTVibrationPacket(
                             tpLayerPacket.toAppLayerPacket()
@@ -1599,14 +1630,14 @@ class PumpIO(
                 // not recoverable. Throw an exception here to let the
                 // packet receiver fail. It will forward the exception to
                 // any ongoing send and receive calls.
-                ApplicationLayer.Command.CTRL_SERVICE_ERROR -> {
+                ApplicationLayer.Command.CTRL_SERVICE_ERROR             -> {
                     val appLayerPacket = tpLayerPacket.toAppLayerPacket()
                     val ctrlServiceError = ApplicationLayer.parseCTRLServiceErrorPacket(appLayerPacket)
                     logger(LogLevel.ERROR) { "Got CTRL_SERVICE_ERROR packet from the Combo; throwing exception" }
                     throw ApplicationLayer.ServiceErrorException(appLayerPacket, ctrlServiceError)
                 }
 
-                else -> TransportLayer.IO.ReceiverBehavior.FORWARD_PACKET
+                else                                                    -> TransportLayer.IO.ReceiverBehavior.FORWARD_PACKET
             }
         } else
             TransportLayer.IO.ReceiverBehavior.FORWARD_PACKET
@@ -1797,7 +1828,7 @@ class PumpIO(
                 }
             }
 
-            Mode.COMMAND -> {
+            Mode.COMMAND         -> {
                 if (isCMDPingHeartbeatRunning()) {
                     stopCMDPingHeartbeat()
                     startCMDPingHeartbeat()
@@ -1809,7 +1840,7 @@ class PumpIO(
             // turn call this function, but there is no defined heartbeat
             // in the control mode (which is only used to set up pairing
             // and a connection). Just don't do anything in that case.
-            null -> Unit
+            null                 -> Unit
         }
     }
 
@@ -1994,9 +2025,9 @@ class PumpIO(
             throw TransportLayer.InvalidPayloadException(packet, "Expected 17 bytes, got ${packet.payload.size}")
 
         val serverID = ((packet.payload[0].toPosLong() shl 0) or
-                (packet.payload[1].toPosLong() shl 8) or
-                (packet.payload[2].toPosLong() shl 16) or
-                (packet.payload[3].toPosLong() shl 24))
+            (packet.payload[1].toPosLong() shl 8) or
+            (packet.payload[2].toPosLong() shl 16) or
+            (packet.payload[3].toPosLong() shl 24))
 
         // The pump ID string can be up to 13 bytes long. If it
         // is shorter, the unused bytes are filled with nullbytes.
@@ -2004,7 +2035,7 @@ class PumpIO(
         for (i in 0 until 13) {
             val pumpIDByte = packet.payload[4 + i]
             if (pumpIDByte == 0.toByte()) break
-            else pumpIDStrBuilder.append(pumpIDByte.toInt().toChar())
+            else pumpIDStrBuilder.append(Char(pumpIDByte.toInt()))
         }
         val pumpID = pumpIDStrBuilder.toString()
 

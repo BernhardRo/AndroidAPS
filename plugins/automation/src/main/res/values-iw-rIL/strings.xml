@@ -63,13 +63,6 @@
     <string name="time_range">טווח זמן</string>
     <string name="timerange_value">הזמן בין %1$s ו- %2$s</string>
     <string name="between">בין </string>
-    <string name="weekday_sunday_short">א׳</string>
-    <string name="weekday_saturday_short">ש\'</string>
-    <string name="weekday_friday_short">ו׳</string>
-    <string name="weekday_thursday_short">ה\'</string>
-    <string name="weekday_wednesday_short">ד\'</string>
-    <string name="weekday_tuesday_short">ג\'</string>
-    <string name="weekday_monday_short">ב\'</string>
     <string name="delete_short">מחק</string>
     <string name="add_short">הוספה</string>
     <string name="copy_short">העתקה</string>
@@ -83,9 +76,8 @@
     <string name="deltalabel">הפרש רמת סוכר</string>
     <string name="deltalabel_u">הפרש רמת סוכר [%1$s]</string>
     <string name="currentlocation">מיקום נוכחי</string>
+    <string name="choose_from_map">בחר מהמפה</string>
     <string name="location">מיקום</string>
-    <string name="latitude_short">רוחב:</string>
-    <string name="longitude_short">אורך:</string>
     <string name="glucose_u">גלוקוז [%1$s]:</string>
     <string name="target_u">מטרה [%1$s]:</string>
     <string name="lastboluslabel">בולוס אחרון</string>
@@ -111,24 +103,25 @@
     <string name="automation_event">אירוע אוטומציה</string>
     <string name="reorder_label">סדר מחדש</string>
     <string name="user_action">פעולות משתמש</string>
-    <string name="remove_automation">הסר אוטומציה</string>
-    <string name="sort_automation">מיין אוטומציות</string>
     <string name="remove_selected_items">הסר פריטים נבחרים</string>
     <string name="count_selected">%1$d נבחרו</string>
     <string name="system_automation">אוטומציית מערכת</string>
     <string name="run_automations">הפעל אוטומציות</string>
     <string name="add_automation">הוספת כלל</string>
     <string name="stop_processing">עצור עיבוד</string>
-    <!-- WeekdayPicker -->
-    <string name="monday_short">ב\'</string>
-    <string name="tuesday_short">ג\'</string>
-    <string name="wednesday_short">ד\'</string>
-    <string name="thursday_short">ה\'</string>
-    <string name="friday_short">ו\'</string>
-    <string name="saturday_short">ש\'</string>
-    <string name="sunday_short">א\'</string>
     <!--    Reminders-->
     <string name="time_to_eat">זמן לאכול!\nהפעילו את אשף הבולוסים וחשבו בולוס חדש.</string>
     <string name="time_to_bolus">זמן להזריק בולוס!\nהשתמשו במחשבון וחשבו מחדש.</string>
     <string name="error_setting_reminder">חלה תקלה בעת הגדרת תזכורת</string>
+    <!--    Autotune-->
+    <string name="autotune_profile_name">פרופיל אוטומטי %1$s</string>
+    <string name="autotune_run">הפעל Autotune</string>
+    <string name="autotune_run_without_autoswitch">כוונון אוטומטי הופעל ללא החלפת פרופיל</string>
+    <string name="autotune_run_with_autoswitch">כוונון אוטומטי הופעל והפרופיל הוחלף אוטומטית</string>
+    <string name="autotune_run_with_error">שגיאה במהלך הכיוונון האוטומטי האחרון</string>
+    <string name="autotune_run_cancelled">נמצאה הפעלה נוספת של הכוונון האוטומטי ברקע, ההפעלה בוטלה</string>
+    <!--    Steps count-->
+    <!--    SMB mode-->
+    <!--    Map Picker (OpenStreetMap)-->
+    <!-- Permission rationales -->
 </resources>
