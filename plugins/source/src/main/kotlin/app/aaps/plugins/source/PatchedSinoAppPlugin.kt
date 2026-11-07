@@ -20,6 +20,7 @@ import app.aaps.core.objects.workflow.LoggingWorker
 import kotlinx.coroutines.Dispatchers
 import org.json.JSONArray
 import org.json.JSONException
+import app.aaps.plugins.source.fragments.BGSourceFragment
 import javax.inject.Inject
 import javax.inject.Singleton
 

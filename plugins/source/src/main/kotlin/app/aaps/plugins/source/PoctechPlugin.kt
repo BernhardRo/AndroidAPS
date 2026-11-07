@@ -20,6 +20,7 @@ import app.aaps.core.interfaces.source.BgSource
 import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.core.objects.workflow.LoggingWorker
 import app.aaps.core.utils.JsonHelper.safeGetString
+import app.aaps.plugins.source.fragments.BGSourceFragment
 import kotlinx.coroutines.Dispatchers
 import org.json.JSONArray
 import org.json.JSONException

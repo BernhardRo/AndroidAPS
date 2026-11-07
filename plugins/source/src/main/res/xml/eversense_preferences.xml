@@ -1,0 +1,34 @@
+<androidx.preference.PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <androidx.preference.PreferenceCategory app:title="My Glucose">
+
+        <androidx.preference.Preference
+            app:key="eversense_calibrate"
+            app:title="Calibrate"
+            app:summary="Enter blood glucose value" />
+
+        <androidx.preference.Preference
+            app:key="eversense_history"
+            app:title="Alert History" />
+
+    </androidx.preference.PreferenceCategory>
+
+    <androidx.preference.PreferenceCategory app:title="Device">
+
+        <androidx.preference.Preference
+            app:key="eversense_connect"
+            app:title="Connect"
+            app:summary="Pair with Smart Transmitter" />
+
+    </androidx.preference.PreferenceCategory>
+
+    <androidx.preference.PreferenceCategory app:title="Configuration">
+
+        <androidx.preference.Preference
+            app:key="eversense_settings_glucose"
+            app:title="Settings > Glucose"
+            app:fragment="app.aaps.plugins.cgm.eversense.GlucoseSettingsFragment" />
+
+    </androidx.preference.PreferenceCategory>
+
+</androidx.preference.PreferenceScreen>
