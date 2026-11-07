@@ -40,6 +40,14 @@ class SourceSensorExtensionsTest {
     }
 
     @Test
+    fun `identified eversense sensors retain CAPTCG filtering flags`() {
+        assertTrue(SourceSensor.EVERSENSE_E3.advancedFilteringSupported())
+        assertTrue(SourceSensor.EVERSENSE_365.advancedFilteringSupported())
+        assertFalse(SourceSensor.EVERSENSE_E3.needsFlatBgCheck())
+        assertFalse(SourceSensor.EVERSENSE_365.needsFlatBgCheck())
+    }
+
+    @Test
     fun `eversense does not support advanced filtering`() {
         assertFalse(SourceSensor.EVERSENSE.advancedFilteringSupported())
     }

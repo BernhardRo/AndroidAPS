@@ -1,0 +1,475 @@
+package app.aaps.plugins.eversense
+
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.ScanSettings
+import android.content.Context
+import app.aaps.plugins.eversense.storage.EversenseStore
+import android.os.SystemClock
+import app.aaps.plugins.eversense.storage.edit
+import app.aaps.plugins.eversense.callbacks.EversenseScanCallback
+import app.aaps.plugins.eversense.callbacks.EversenseWatcher
+import app.aaps.plugins.eversense.models.EversenseState
+import app.aaps.plugins.eversense.models.EversenseTransmitterSettings
+import app.aaps.plugins.eversense.packets.Eversense365Communicator
+import app.aaps.plugins.eversense.packets.EversenseE3Communicator
+import app.aaps.plugins.eversense.packets.e3.EnterDiagnosticModePacket
+import app.aaps.plugins.eversense.packets.e3.ExitDiagnosticModePacket
+import app.aaps.plugins.eversense.packets.e365.EnterDiagnosticMode365Packet
+import app.aaps.plugins.eversense.packets.e365.ExitDiagnosticMode365Packet
+import app.aaps.plugins.eversense.packets.e3.GetCalibrationReadinessPacket
+import app.aaps.plugins.eversense.packets.e3.GetSignalStrengthRawPacket
+import app.aaps.plugins.eversense.packets.e365.GetSignalStrengthPacket
+import app.aaps.plugins.eversense.packets.e365.SetBloodGlucosePointPacket365
+import app.aaps.plugins.eversense.enums.CalibrationReadiness
+import app.aaps.plugins.eversense.util.EversenseCrypto365Util
+import app.aaps.plugins.eversense.util.EversenseLogger
+import app.aaps.plugins.eversense.util.EversenseScanner
+import app.aaps.plugins.eversense.util.StorageKeys
+import kotlinx.serialization.json.Json
+import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
+
+/**
+ * Core Eversense CGM manager — constructor-injected, no manual singleton.
+ *
+ * Provided as @Singleton via SourceModule. Context, BluetoothManager, and EversenseStore
+ * are non-nullable vals initialized at construction time, eliminating ~40 null checks.
+ */
+class EversenseCGMPlugin(
+    private val context: Context,
+    private val bluetoothManager: BluetoothManager,
+    val preferences: EversenseStore
+) {
+    init {
+        // Must run before anything below (or in EversenseGattCallback's construction) does any
+        // EversenseLogger.* call - EversenseLogger configures Logback on first use, and
+        // configure() has no effect after that point. Points Eversense's own log file at the
+        // app's real, permission-free scoped external-files directory (same one AndroidAPS.log
+        // uses) instead of EversenseLogger's raw-/sdcard fallback, which scoped storage silently
+        // blocks writes to on modern Android without MANAGE_EXTERNAL_STORAGE - see
+        // EversenseLogger.configure() for the full story.
+        val extFilesDir = context.getExternalFilesDir(null)
+        val eversenseLogDir = if (extFilesDir != null) File(extFilesDir, "eversense").absolutePath else "/sdcard/AndroidAPS/eversense"
+        EversenseLogger.configure(eversenseLogDir)
+        EversenseLogger.enableLogging(true)
+    }
+
+    private val gattCallback = EversenseGattCallback(this, preferences)
+    private val connectionLock = Any()
+    private var scanner: EversenseScanner? = null
+
+    // Guards against overlapping connect attempts. connect() sets this the moment it calls
+    // connectGatt(); it is cleared when the attempt reaches a terminal state (transmitter
+    // ready, or a disconnect/failure callback - see onConnectAttemptFinished). A duplicate
+    // connect() while an attempt is still in flight would cleanUp() the in-progress GATT and
+    // restart auth from scratch. With several stacked reconnect timers all firing connect(),
+    // that kept tearing down auth before it could finish - a self-inflicted connection storm
+    // that left the transmitter unable to reconnect for many minutes after a phone reboot.
+    // connectingSince bounds the flag: a connectGatt() that never calls back (seen when the
+    // BLE radio is mid-toggle) can only block reconnection for CONNECT_IN_PROGRESS_TIMEOUT_MS.
+    @Volatile
+    private var connecting: Boolean = false
+    @Volatile
+    private var connectingSince: Long = 0L
+
+    // Called by the GATT callback when a connect attempt begins outside connect() - i.e. the
+    // 365 post-sync (status 19) path, which reuses the existing GATT via gatt.connect() rather
+    // than going through connect(). Marks the in-progress window so a stacked connect() can't
+    // tear that reuse down mid-flight.
+    fun onConnectAttemptStarted() {
+        connecting = true
+        connectingSince = SystemClock.elapsedRealtime()
+    }
+
+    // Called by the GATT callback when a connect attempt reaches a terminal state (transmitter
+    // ready, or disconnect/failure), so the next connect() is allowed to proceed immediately
+    // rather than waiting out the watchdog window.
+    fun onConnectAttemptFinished() {
+        connecting = false
+    }
+
+    // Thread-safe: watchers are added/removed from main thread but iterated from bleExecutor
+    val watchers: MutableList<EversenseWatcher> = CopyOnWriteArrayList()
+
+    // Flag to track positioning mode state for safe diagnostic mode toggling
+    var isPositioningMode: Boolean = false
+
+    // Credentials set by AAPS layer before any login attempt
+    var username: String = ""
+    var password: String = ""
+
+    fun addWatcher(watcher: EversenseWatcher) {
+        if (!watchers.contains(watcher)) watchers.add(watcher)
+    }
+
+    fun removeWatcher(watcher: EversenseWatcher) {
+        watchers.remove(watcher)
+    }
+
+    fun isConnected(): Boolean = gattCallback.isConnected()
+    fun is365(): Boolean = gattCallback.is365()
+
+    fun getCurrentState(): EversenseState {
+        val stateJson = preferences.getString(StorageKeys.STATE, null) ?: "{}"
+        return JSON.decodeFromString<EversenseState>(stateJson)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun startScan(callback: EversenseScanCallback) {
+        val bluetoothScanner = bluetoothManager.adapter?.bluetoothLeScanner ?: run {
+            EversenseLogger.error(TAG, "BLE scanner not available")
+            return
+        }
+        scanner = EversenseScanner(callback)
+        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+        bluetoothScanner.startScan(null, settings, scanner)
+        EversenseLogger.info(TAG, "BLE scan started")
+    }
+
+    @SuppressLint("MissingPermission")
+    fun stopScan() {
+        val bluetoothScanner = bluetoothManager.adapter?.bluetoothLeScanner ?: run {
+            EversenseLogger.error(TAG, "No bluetooth scanner available when trying to stop scan")
+            return
+        }
+        scanner?.let {
+            bluetoothScanner.stopScan(it)
+            scanner = null
+            EversenseLogger.info(TAG, "Scan stopped")
+        } ?: EversenseLogger.info(TAG, "stopScan called but no active scan found")
+    }
+
+    // Android doesn't always deliver onConnectionStateChange when the Bluetooth radio itself
+    // is powered off (observed in the wild: no disconnect callback at all across a BT toggle),
+    // so gattCallback's internal "connected" flag can be left stale true. A live BLE connection
+    // cannot survive the whole adapter going off, so plain connect() would wrongly short-circuit
+    // on isConnected() and do nothing. Call this instead of connect() when reacting to
+    // BluetoothAdapter.ACTION_STATE_CHANGED -> STATE_ON, since that's exactly the situation where
+    // "connected" may be lying.
+    @SuppressLint("MissingPermission")
+    fun forceReconnect(): Boolean {
+        // Explicit "start over": cleanUp() tears down any in-flight GATT, so clear the
+        // in-progress guard too - otherwise a stale connecting flag from the aborted attempt
+        // would make the connect() below skip itself. This is the manual/BT-recovery override,
+        // which must never be a no-op.
+        gattCallback.cleanUp()
+        connecting = false
+        return connect(null)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun connect(device: BluetoothDevice? = null): Boolean {
+        stopScan()
+
+        synchronized(connectionLock) {
+            if (gattCallback.isConnected()) {
+                EversenseLogger.info(TAG, "Already connected, skipping reconnect")
+                return true
+            }
+
+            if (bluetoothManager.adapter?.isEnabled != true) {
+                // connectGatt() made while the Bluetooth radio is off (or still mid-toggle)
+                // never fires any callback - not even a failure one - so it must not be
+                // attempted here. Retrying blindly on a timer against a dead radio just wastes
+                // GATT client slots. EversensePlugin's BluetoothAdapter.ACTION_STATE_CHANGED
+                // receiver calls connect() again the moment the adapter is confirmed back on.
+                EversenseLogger.warning(TAG, "Bluetooth is disabled — skipping connect attempt, will retry once it's back on")
+                return false
+            }
+
+            // Skip if an attempt is already in flight (see the connecting field). connect() tears
+            // down the current GATT via cleanUp() before opening a new one, so letting a stacked
+            // reconnect timer through here would abort an auth that is still in progress.
+            if (connecting && SystemClock.elapsedRealtime() - connectingSince < CONNECT_IN_PROGRESS_TIMEOUT_MS) {
+                EversenseLogger.info(TAG, "Connect attempt already in progress — skipping duplicate")
+                return false
+            }
+            connecting = true
+            connectingSince = SystemClock.elapsedRealtime()
+
+            gattCallback.cleanUp()
+
+            return if (device != null) {
+                EversenseLogger.info(TAG, "Connecting to supplied device: ${device.name}")
+                preferences.edit { putString(StorageKeys.REMOTE_DEVICE_KEY, device.address) }
+                EversenseLogger.info(TAG, "Saved device address for auto-reconnect: ${device.address}")
+                // A device picked from the scan-and-pick dialog is, by definition, a different
+                // physical transmitter than whatever the "shortcut auth" session key was
+                // negotiated with (canUseShortcut() is a plain persisted flag, not tied to any
+                // particular transmitter's identity) - so the cached shortcut is guaranteed
+                // invalid here. Without this, the 365 auth flow tries it anyway, gets rejected by
+                // the new transmitter, and only recovers after SHORTCUT_FAIL_THRESHOLD (3) failed
+                // connection attempts. Force a full WhoAmI + DMS login + fleet cert handshake on
+                // the very first attempt against a newly-selected device instead of waiting for
+                // that self-healing to kick in.
+                EversenseCrypto365Util(preferences).disallowUseShortcut()
+                // autoConnect=false here, unlike the stored-device branch below: this device was
+                // just found via active scan and has never been bonded/connected before.
+                // autoConnect=true tells Android to use its background "connect whenever the
+                // device becomes available" mechanism, meant for reconnecting to an already-known
+                // device - for a brand-new, never-bonded device it's a well-documented way to get
+                // neither a GATT callback nor a pairing prompt, silently, indefinitely. false forces
+                // an immediate direct connection attempt instead.
+                gattCallback.attachGatt(device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE))
+                true
+            } else {
+                val address = preferences.getString(StorageKeys.REMOTE_DEVICE_KEY, null) ?: run {
+                    EversenseLogger.error(TAG, "No device supplied and no stored device address found.")
+                    return false
+                }
+                val remoteDevice = bluetoothManager.adapter.getRemoteDevice(address) ?: run {
+                    EversenseLogger.error(TAG, "Could not retrieve remote device for address $address")
+                    return false
+                }
+                EversenseLogger.info(TAG, "Reconnecting to stored device: $address")
+                // The handle is handed straight to the callback: autoConnect=true means Android
+                // keeps this client alive in the background, so one that is never closed goes on
+                // delivering notifications - and every one of them twice - indefinitely.
+                gattCallback.attachGatt(remoteDevice.connectGatt(context, true, gattCallback, BluetoothDevice.TRANSPORT_LE))
+                true
+            }
+        }
+    }
+
+    fun clearStoredDevice() {
+        preferences.edit { remove(StorageKeys.REMOTE_DEVICE_KEY) }
+        EversenseLogger.info(TAG, "Cleared stored device address")
+    }
+
+    fun disconnect() {
+        if (!gattCallback.isConnected()) {
+            EversenseLogger.info(TAG, "disconnect() called but not currently connected")
+            return
+        }
+        gattCallback.disconnect()
+        EversenseLogger.info(TAG, "Disconnected from transmitter")
+    }
+
+    fun setDiagnosticMode(isEnabled: Boolean) {
+        if (!gattCallback.isConnected()) {
+            EversenseLogger.warning(TAG, "Cannot set diagnostic mode — not connected")
+            return
+        }
+        try {
+            // Routed through bleExecutor (like every other write path) so this can't race a
+            // concurrently in-flight write from the Keep Alive sync cycle.
+            val future = gattCallback.submitToExecutor { doSetDiagnosticMode(isEnabled) }
+            future.get(20000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (e: Exception) {
+            EversenseLogger.warning(TAG, "setDiagnosticMode failed: $e")
+        }
+    }
+
+    // The actual diagnostic-mode write. Callers MUST already be running on bleExecutor's single
+    // worker thread - either via setDiagnosticMode() above (the normal entry point, which submits
+    // this to bleExecutor and blocks), or from another task already running there, like
+    // submitToExecutorAndSync()'s reconnect handler below. Calling this indirectly through
+    // setDiagnosticMode() from inside an already-running bleExecutor task deadlocks: the submit
+    // queues a second task behind the one currently blocked waiting for it, on an executor that
+    // only has one worker thread - future.get() always times out after 20s, silently, since
+    // setDiagnosticMode() swallows the resulting TimeoutException as a warning.
+    private fun doSetDiagnosticMode(isEnabled: Boolean) {
+        if (gattCallback.is365()) {
+            if (isEnabled) {
+                gattCallback.writePacket<EnterDiagnosticMode365Packet.Response>(EnterDiagnosticMode365Packet())
+            } else {
+                gattCallback.writePacket<ExitDiagnosticMode365Packet.Response>(ExitDiagnosticMode365Packet())
+            }
+            EversenseLogger.info(TAG, "Diagnostic mode set to $isEnabled (365)")
+        } else {
+            if (isEnabled) {
+                gattCallback.writePacket<EnterDiagnosticModePacket.Response>(EnterDiagnosticModePacket())
+            } else {
+                gattCallback.writePacket<ExitDiagnosticModePacket.Response>(ExitDiagnosticModePacket())
+            }
+            EversenseLogger.info(TAG, "Diagnostic mode set to $isEnabled (E3)")
+        }
+    }
+
+    fun enterPositioningMode() {
+        isPositioningMode = true
+        setDiagnosticMode(true)
+        EversenseLogger.info(TAG, "Diagnostic Mode ENABLED: Positioning active")
+    }
+
+    // Set whenever we intentionally exit diagnostic/positioning mode. The transmitter reliably
+    // pushes an alarm code with no EversenseAlarm mapping (-> UNKNOWN) ~1-2s after this transition
+    // (confirmed from device logs: signal/battery/calibration all healthy at the time - a
+    // mode-transition status push, not a real fault). EversensePlugin.onAlarmReceived() uses this
+    // timestamp to suppress just that transient push without masking a genuinely-unrecognized
+    // alarm arriving at any other time.
+    @Volatile var lastPositioningModeExitAt: Long = 0L
+        private set
+
+    fun exitPositioningMode() {
+        isPositioningMode = false
+        lastPositioningModeExitAt = System.currentTimeMillis()
+        setDiagnosticMode(false)
+        EversenseLogger.info(TAG, "Diagnostic Mode DISABLED: Power saving active")
+    }
+
+    fun writeSettings(settings: EversenseTransmitterSettings): Boolean {
+        if (!gattCallback.isConnected()) {
+            EversenseLogger.error(TAG, "Transmitter is not connected")
+            return false
+        }
+        return EversenseE3Communicator.writeSettings(gattCallback, preferences, settings)
+    }
+
+    fun sendCalibration(glucoseMgDl: Int, timestampMs: Long = System.currentTimeMillis()): Boolean {
+        if (!gattCallback.isConnected()) {
+            EversenseLogger.error(TAG, "Transmitter is not connected")
+            return false
+        }
+        val state = getCurrentState()
+        return try {
+            val future = gattCallback.submitToExecutor {
+                if (gattCallback.is365()) {
+                    val packet = SetBloodGlucosePointPacket365(glucoseMgDl, timestampMs)
+                    gattCallback.writePacket<SetBloodGlucosePointPacket365.Response>(packet)
+                    EversenseLogger.info(TAG, "365 calibration sent: $glucoseMgDl mg/dL")
+                } else {
+                    EversenseE3Communicator.sendCalibration(gattCallback, glucoseMgDl)
+                }
+            }
+            future.get(20000, java.util.concurrent.TimeUnit.MILLISECONDS)
+
+            val stateJson = preferences.getString(StorageKeys.STATE, null) ?: "{}"
+            val updatedState = JSON.decodeFromString<EversenseState>(stateJson)
+            updatedState.lastCalibrationDate = timestampMs
+            updatedState.nextCalibrationDate = timestampMs + 24 * 60 * 60 * 1000L
+            updatedState.calibrationReadiness = CalibrationReadiness.WAITING_POST_CALIBRATION
+            preferences.edit(commit = true) {
+                putString(StorageKeys.STATE, JSON.encodeToString(updatedState))
+            }
+            EversenseLogger.info(TAG, "Updated calibration state: lastCalibrationDate=$timestampMs, readiness=WAITING_POST_CALIBRATION")
+
+            if (!gattCallback.is365()) {
+                gattCallback.submitToExecutor {
+                    try {
+                        val readinessResponse = gattCallback.writePacket<GetCalibrationReadinessPacket.Response>(GetCalibrationReadinessPacket())
+                        val currentStateJson = preferences.getString(StorageKeys.STATE, null) ?: "{}"
+                        val currentState = JSON.decodeFromString<EversenseState>(currentStateJson)
+                        currentState.calibrationReadiness = readinessResponse.readiness
+                        preferences.edit(commit = true) {
+                            putString(StorageKeys.STATE, JSON.encodeToString(currentState))
+                        }
+                        EversenseLogger.info(TAG, "Post-calibration readiness re-read: ${readinessResponse.readiness}")
+                        watchers.forEach { it.onStateChanged(currentState) }
+                    } catch (e: Exception) {
+                        EversenseLogger.warning(TAG, "Post-calibration readiness re-read failed (non-fatal): $e")
+                    }
+                }
+            }
+
+            true
+        } catch (e: Exception) {
+            EversenseLogger.error(TAG, "Failed to send calibration: $e")
+            false
+        }
+    }
+
+    fun submitToExecutorAndSync(force: Boolean = false) {
+        if (!gattCallback.isConnected()) {
+            EversenseLogger.error(TAG, "Cannot sync — not connected")
+            return
+        }
+        if (gattCallback.is365()) {
+            EversenseLogger.info(TAG, "365 transmitter — skipping submitToExecutorAndSync (authV2flow handles it)")
+            return
+        }
+        gattCallback.submitToExecutor {
+            if (isPositioningMode) {
+                // Already running on bleExecutor here - call the write directly, not through
+                // setDiagnosticMode(), which would submit-and-block on this same single-threaded
+                // executor and deadlock (see doSetDiagnosticMode's doc comment).
+                try {
+                    doSetDiagnosticMode(true)
+                    EversenseLogger.info(TAG, "Re-enabled Diagnostic Mode after reconnect")
+                } catch (e: Exception) {
+                    EversenseLogger.warning(TAG, "Failed to re-enable diagnostic mode after reconnect: $e")
+                }
+            }
+            EversenseLogger.info(TAG, "Running E3 fullSync on bleExecutor after connect")
+            EversenseE3Communicator.fullSync(gattCallback, preferences, watchers.toList(), force)
+        }
+    }
+
+    fun triggerFullSync(force: Boolean = false) {
+        if (!gattCallback.isConnected()) {
+            EversenseLogger.error(TAG, "Cannot sync — not connected")
+            return
+        }
+        EversenseLogger.info(TAG, "Triggering full sync on user request")
+        if (gattCallback.is365()) {
+            Eversense365Communicator.fullSync(gattCallback, preferences, watchers.toList(), force)
+            Eversense365Communicator.readGlucose(gattCallback, preferences, watchers.toList())
+        } else {
+            EversenseE3Communicator.fullSync(gattCallback, preferences, watchers.toList(), force)
+            EversenseE3Communicator.readGlucose(gattCallback, preferences, watchers.toList())
+        }
+        gattCallback.readRssi()
+    }
+
+    fun onRssiRead(rssi: Int) {
+        val stateJson = preferences.getString(StorageKeys.STATE, null) ?: "{}"
+        val state = JSON.decodeFromString<EversenseState>(stateJson)
+        state.placementSignalRssi = rssi
+        preferences.edit { putString(StorageKeys.STATE, JSON.encodeToString(state)) }
+        EversenseLogger.debug(TAG, "RSSI updated: $rssi dBm")
+        watchers.forEach { it.onStateChanged(state) }
+    }
+
+    fun readSignalStrength() {
+        if (!gattCallback.isConnected()) { EversenseLogger.warning(TAG, "Cannot read signal strength — not connected"); return }
+        try {
+            // Routed through bleExecutor (like every other write path) so this can't race a
+            // concurrently in-flight write from the Keep Alive sync cycle.
+            val future = gattCallback.submitToExecutor {
+                if (gattCallback.is365()) {
+                    val response = gattCallback.writePacket<GetSignalStrengthPacket.Response>(GetSignalStrengthPacket())
+                    response.signalStrength
+                } else {
+                    val response = gattCallback.writePacket<GetSignalStrengthRawPacket.Response>(GetSignalStrengthRawPacket())
+                    EversenseLogger.info(TAG, "E3 signal raw: ${response.rawValue} -> ${response.signalStrength}%")
+                    response.signalStrength
+                }
+            }
+            val signalStrength = future.get(20000, java.util.concurrent.TimeUnit.MILLISECONDS)
+            val stateJson = preferences.getString(StorageKeys.STATE, null) ?: "{}"
+            val state = JSON.decodeFromString<EversenseState>(stateJson)
+            state.sensorSignalStrength = signalStrength
+            preferences.edit { putString(StorageKeys.STATE, JSON.encodeToString(state)) }
+            EversenseLogger.info(TAG, "Signal strength: $signalStrength%")
+            watchers.forEach { it.onStateChanged(state) }
+        } catch (e: Exception) {
+            EversenseLogger.warning(TAG, "readSignalStrength failed: $e")
+            gattCallback.readRssi()
+        }
+    }
+
+    private fun rssiToStrength(rssi: Int): Int = when {
+        rssi == 0   -> 0
+        rssi >= -65 -> 100
+        rssi >= -75 -> 80
+        rssi >= -85 -> 60
+        rssi >= -95 -> 40
+        else        -> 20
+    }
+
+    fun readRssi() {
+        gattCallback.readRssi()
+    }
+
+    companion object {
+        private const val TAG = "EversenseCGMManager"
+        private val JSON = Json { ignoreUnknownKeys = true }
+
+        // Upper bound on how long a single connect attempt may hold off duplicate attempts.
+        // A normal 365 auth completes in a few seconds; this only exists so a connectGatt()
+        // that never calls back cannot block reconnection forever.
+        private const val CONNECT_IN_PROGRESS_TIMEOUT_MS = 30_000L
+    }
+}
