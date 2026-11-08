@@ -51,4 +51,25 @@ class EversenseCredentialsTest {
         verify(editor).remove(StorageKeys.ACCESS_TOKEN_EXPIRY)
         verifyNoInteractions(bluetooth)
     }
+    @Test fun repeatedOfflineShortcutFailuresRetainRegisteredIdentity() {
+        val backend = backend()
+        val adapter: android.bluetooth.BluetoothAdapter = mock()
+        val device: android.bluetooth.BluetoothDevice = mock()
+        val gatt: android.bluetooth.BluetoothGatt = mock()
+        whenever(bluetooth.adapter).thenReturn(adapter)
+        whenever(adapter.isEnabled).thenReturn(true)
+        whenever(store.getString(StorageKeys.REMOTE_DEVICE_KEY, null)).thenReturn("00:11:22:33:44:55")
+        whenever(adapter.getRemoteDevice(any<String>())).thenReturn(device)
+        whenever(device.connectGatt(eq(context), eq(false), any(), eq(android.bluetooth.BluetoothDevice.TRANSPORT_LE))).thenReturn(gatt)
+        backend.setCredentials("user", "secret", false)
+        backend.start()
+        try {
+            val callback = argumentCaptor<android.bluetooth.BluetoothGattCallback>()
+            verify(device).connectGatt(eq(context), eq(false), callback.capture(), eq(android.bluetooth.BluetoothDevice.TRANSPORT_LE))
+            val session = (callback.firstValue as EversenseGattCallback).session
+            repeat(10) { backend.authenticationFailed(session, shortcut = true) }
+            verify(editor, never()).putString(eq(StorageKeys.SECURE_STATE), anyOrNull())
+        } finally { backend.stop() }
+    }
+
 }

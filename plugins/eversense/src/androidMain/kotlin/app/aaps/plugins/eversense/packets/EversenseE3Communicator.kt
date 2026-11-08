@@ -82,7 +82,7 @@ class EversenseE3Communicator {
             }
 
             try {
-                EversenseLogger.debug(TAG, "Reading current glucose...")
+                EversenseLogger.debug(TAG) { "Reading current glucose..." }
                 val glucoseData = gatt.writePacket<GetCurrentGlucosePacket.Response>(GetCurrentGlucosePacket())
                 if (glucoseData.datetime <= state.recentGlucoseDatetime) {
                     EversenseLogger.warning(TAG, "Glucose data is still recent after reading - currentReading: ${glucoseData.datetime}, lastReading: ${state.recentGlucoseDatetime}")
@@ -113,7 +113,7 @@ class EversenseE3Communicator {
 
                 // Read RSSI to update placement signal after each glucose reading
                 try {
-                    EversenseLogger.debug(TAG, "Reading RSSI for placement signal...")
+                    EversenseLogger.debug(TAG) { "Reading RSSI for placement signal..." }
                 } catch (e: Exception) {
                     EversenseLogger.warning(TAG, "Failed to read RSSI: $e")
                 }
@@ -146,27 +146,27 @@ class EversenseE3Communicator {
                 // Send ping first ΓÇö the official app calls postPingRequest() before any
                 // ReadSingleByte commands. Without it the transmitter rejects 0x2A with
                 // InvalidMessageLength (error 5) for every address.
-                EversenseLogger.debug(TAG, "Pinging transmitter...")
+                EversenseLogger.debug(TAG) { "Pinging transmitter..." }
                 try {
                     gatt.writePacket<PingPacket.Response>(PingPacket())
-                    EversenseLogger.info(TAG, "Ping successful")
+                    EversenseLogger.debug(TAG) { "Ping successful" }
                 } catch (e: Exception) {
                     EversenseLogger.warning(TAG, "Ping failed (non-fatal): $e")
                 }
 
-                EversenseLogger.debug(TAG, "Reading current datetime...")
+                EversenseLogger.debug(TAG) { "Reading current datetime..." }
                 val currentDatetime = gatt.writePacket<GetCurrentDatetimePacket.Response>(GetCurrentDatetimePacket())
                 if (currentDatetime.needsTimeSync) {
-                    EversenseLogger.debug(TAG, "Send SetCurrentDatetimePacket...")
+                    EversenseLogger.debug(TAG) { "Send SetCurrentDatetimePacket..." }
                     gatt.writePacket<SetCurrentDatetimePacket.Response>(SetCurrentDatetimePacket())
                 }
 
                 // The E3 battery register returns an enum index (0-11) mapped to display percentages.
                 // Mapping sourced from official Eversense app BATTERY_LEVEL enum (fromStrength).
                 try {
-                    EversenseLogger.debug(TAG, "Reading battery percentage...")
+                    EversenseLogger.debug(TAG) { "Reading battery percentage..." }
                     val batteryRaw = gatt.writePacket<GetBatteryPercentagePacket.Response>(GetBatteryPercentagePacket())
-                    EversenseLogger.info(TAG, "Battery raw register value: ${batteryRaw.percentage}")
+                    EversenseLogger.debug(TAG) { "Battery raw register value: ${batteryRaw.percentage}" }
                     state.batteryPercentage = when (batteryRaw.percentage) {
                         0  -> 0
                         1  -> 5
@@ -182,7 +182,7 @@ class EversenseE3Communicator {
                         11 -> 100
                         else -> batteryRaw.percentage
                     }
-                    EversenseLogger.info(TAG, "Battery percentage mapped: ${state.batteryPercentage}%")
+                    EversenseLogger.debug(TAG) { "Battery percentage mapped: ${state.batteryPercentage}%" }
                 } catch (e: Exception) {
                     EversenseLogger.warning(TAG, "Battery read failed (non-fatal): $e")
                 }
@@ -193,7 +193,7 @@ class EversenseE3Communicator {
                 // fullSync completes and lastSync updates even if reads fail.
 
                 try {
-                    EversenseLogger.debug(TAG, "Reading insertion datetime...")
+                    EversenseLogger.debug(TAG) { "Reading insertion datetime..." }
                     val insertionDate = gatt.writePacket<GetInsertionDatePacket.Response>(GetInsertionDatePacket())
                     val insertionTime = gatt.writePacket<GetInsertionTimePacket.Response>(GetInsertionTimePacket())
                     val combined = insertionDate.date + insertionTime.time
@@ -201,7 +201,7 @@ class EversenseE3Communicator {
                     val maxDate = 1893456000000L  // 2030-01-01
                     if (combined in minDate..maxDate) {
                         state.insertionDate = combined
-                        EversenseLogger.info(TAG, "Insertion date accepted: $combined")
+                        EversenseLogger.debug(TAG) { "Insertion date accepted: $combined" }
                     } else {
                         EversenseLogger.warning(TAG, "Insertion date out of plausible range, ignoring: $combined")
                     }
@@ -210,7 +210,7 @@ class EversenseE3Communicator {
                 }
 
                 try {
-                    EversenseLogger.debug(TAG, "Reading calibration info...")
+                    EversenseLogger.debug(TAG) { "Reading calibration info..." }
                     val calibrationPhase = gatt.writePacket<GetCalibrationPhasePacket.Response>(GetCalibrationPhasePacket())
                     val calibrationReadiness = gatt.writePacket<GetCalibrationReadinessPacket.Response>(GetCalibrationReadinessPacket())
                     val lastCalibrationDate = gatt.writePacket<GetLastCalibrationDatePacket.Response>(GetLastCalibrationDatePacket())
@@ -222,7 +222,7 @@ class EversenseE3Communicator {
                     val newLastCal = lastCalibrationDate.date + lastCalibrationTime.time
                     if (newLastCal in minCalDate..maxCalDate) {
                         if (newLastCal != prevLastCalibrationDate && prevLastCalibrationDate != 0L) {
-                            EversenseLogger.info(TAG, "Calibration detected from external source: lastCalibrationDate changed from $prevLastCalibrationDate to $newLastCal")
+                            EversenseLogger.debug(TAG) { "Calibration detected from external source: lastCalibrationDate changed from $prevLastCalibrationDate to $newLastCal" }
                         }
                         state.lastCalibrationDate = newLastCal
                         // E3's calibration cadence is a fixed 24h - derive nextCalibrationDate from
@@ -231,7 +231,7 @@ class EversenseE3Communicator {
                         // (matches the upstream iOS EversenseKit fix, which dropped the same two BLE
                         // reads for the identical reason - see EversenseKit commit d71d14564f).
                         state.nextCalibrationDate = newLastCal + TimeUnit.HOURS.toMillis(24)
-                        EversenseLogger.info(TAG, "lastCalibrationDate accepted: $newLastCal, nextCalibrationDate derived: ${state.nextCalibrationDate}")
+                        EversenseLogger.debug(TAG) { "lastCalibrationDate accepted: $newLastCal, nextCalibrationDate derived: ${state.nextCalibrationDate}" }
                     } else {
                         EversenseLogger.warning(TAG, "lastCalibrationDate out of plausible range, ignoring: $newLastCal")
                     }
@@ -248,7 +248,7 @@ class EversenseE3Communicator {
 
                 // Transmitter settings ΓÇö all non-fatal
                 try {
-                    EversenseLogger.debug(TAG, "Reading transmitter settings...")
+                    EversenseLogger.debug(TAG) { "Reading transmitter settings..." }
                     val vibrateEnabled = gatt.writePacket<GetSettingVibratePacket.Response>(GetSettingVibratePacket())
                     val glucoseHighEnabled = gatt.writePacket<GetSettingGlucoseHighEnabled.Response>(GetSettingGlucoseHighEnabled())
                     val glucoseHighThreshold = gatt.writePacket<GetSettingGlucoseHighThresholdPacket.Response>(GetSettingGlucoseHighThresholdPacket())
@@ -306,7 +306,7 @@ class EversenseE3Communicator {
                 try { gatt.writePacket<SetBleDisconnectPacket.Response>(SetBleDisconnectPacket(10)) } catch (e: Exception) { EversenseLogger.warning(TAG, "SetBleDisconnect E3 failed: $e") }
 
                 state.lastSync = System.currentTimeMillis()
-                EversenseLogger.info(TAG, "Completed full sync - datetime: ${state.lastSync}")
+                EversenseLogger.debug(TAG) { "Completed full sync - datetime: ${state.lastSync}" }
                 preferences.edit(commit = true) {
                     putString(StorageKeys.STATE, JSON.encodeToString(state))
                 }
@@ -359,9 +359,9 @@ class EversenseE3Communicator {
         // The transmitter must be in CalibrationReadiness.READY state.
         // Throws EversenseWriteException if the packet fails.
         fun sendCalibration(gatt: EversenseGattCallback, glucoseMgDl: Int) {
-            EversenseLogger.info(TAG, "Sending calibration value: $glucoseMgDl mg/dL")
+            EversenseLogger.debug(TAG) { "Sending calibration value: $glucoseMgDl mg/dL" }
             gatt.writePacket<SendCalibrationPacket.Response>(SendCalibrationPacket(glucoseMgDl), 15000L)
-            EversenseLogger.info(TAG, "Calibration sent successfully")
+            EversenseLogger.debug(TAG) { "Calibration sent successfully" }
         }
     }
 }

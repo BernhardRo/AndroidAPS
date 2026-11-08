@@ -198,7 +198,7 @@ class EversenseGattCallback internal constructor(
     private fun handleOnReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
         if (!accepts(gatt)) return
         if (status == BluetoothGatt.GATT_SUCCESS) {
-            EversenseLogger.debug(TAG, "RSSI: $rssi dBm")
+            EversenseLogger.debug(TAG) { "RSSI: $rssi dBm" }
             plugin.onRssiRead(rssi, session)
         } else {
             EversenseLogger.warning(TAG, "Failed to read RSSI - status: $status")
@@ -210,7 +210,8 @@ class EversenseGattCallback internal constructor(
 
     private fun handleOnConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
         if (!accepts(gatt)) return
-        EversenseLogger.info(TAG, "Connection state changed - status: $status, newState: $newState, device: ${gatt.device.name}")
+        EversenseLogger.info(TAG, "Connection state changed - status: $status, newState: $newState")
+        EversenseLogger.debug(TAG) { "Connected device: ${gatt.device.name}" }
 
         if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
             bluetoothGatt = gatt
@@ -263,7 +264,7 @@ class EversenseGattCallback internal constructor(
         } else {
             payloadSize = mtu - 3
         }
-        EversenseLogger.debug(TAG, "New payload size: $payloadSize")
+        EversenseLogger.debug(TAG) { "New payload size: $payloadSize" }
 
         val success = gatt?.discoverServices()
         EversenseLogger.info(TAG, "Trigger discover services - success: $success")
@@ -334,7 +335,7 @@ class EversenseGattCallback internal constructor(
 
     private fun handleOnDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
         if (!accepts(gatt)) return
-        EversenseLogger.debug(TAG, "onDescriptorWrite (${descriptor.uuid}) for characteristic (${descriptor.characteristic.uuid}) - status $status")
+        EversenseLogger.debug(TAG) { "onDescriptorWrite (${descriptor.uuid}) for characteristic (${descriptor.characteristic.uuid}) - status $status" }
 
         if (status == BluetoothGatt.GATT_SUCCESS && descriptor.uuid.toString() == magicDescriptorUUID) {
             if (descriptor.characteristic.uuid.toString() == responseUUID) {
@@ -398,7 +399,7 @@ class EversenseGattCallback internal constructor(
         // connection being created at all; this is the backstop for one that slips through.
         val now = SystemClock.elapsedRealtime()
         if (now - lastChunkAt < DUPLICATE_CHUNK_WINDOW_MS && lastChunk?.contentEquals(rawData) == true) {
-            EversenseLogger.debug(TAG, "Ignoring chunk $chunkIndex/$totalChunks delivered twice")
+            EversenseLogger.debug(TAG) { "Ignoring chunk $chunkIndex/$totalChunks delivered twice" }
             return null
         }
         lastChunk = rawData
@@ -436,7 +437,7 @@ class EversenseGattCallback internal constructor(
     @OptIn(ExperimentalStdlibApi::class)
     private fun handleCharacteristicChanged(gatt: BluetoothGatt, rawData: ByteArray) {
         if (!accepts(gatt)) return
-        EversenseLogger.debug(TAG, "Received data: ${rawData.toHexString()}")
+        EversenseLogger.debug(TAG) { "Received data: ${rawData.toHexString()}" }
 
         if (rawData.isEmpty()) return
         var data = rawData
@@ -445,22 +446,26 @@ class EversenseGattCallback internal constructor(
 
             if (data[0] != Eversense365Packets.AuthenticateResponseId) {
                 data = cryptoUtil.decrypt(data)
-                EversenseLogger.debug(TAG, "Decrypted data -> ${data.toHexString()}")
+                EversenseLogger.debug(TAG) { "Decrypted data -> ${data.toHexString()}" }
                 if (data.isEmpty()) {
                     // A decrypt/MAC failure means the session key no longer matches the
                     // transmitter, so retrying the shortcut is guaranteed to fail the same way.
                     // Force a full WhoAmI + DMS re-auth on the next connect, so we recover on the
                     // first retry instead of waiting out SHORTCUT_FAIL_THRESHOLD auth timeouts.
-                    EversenseLogger.error(TAG, "Failed to decrypt data — session key is stale, forcing full re-auth on next connect")
-                    cryptoUtil.disallowUseShortcut()
-                    gatt.disconnect()
+                    if (plugin.hasInternet()) {
+                        EversenseLogger.error(TAG, "Failed to decrypt data — requesting full re-auth on next connect")
+                        cryptoUtil.disallowUseShortcut()
+                    } else {
+                        EversenseLogger.warning(TAG, "Failed to decrypt data offline — retaining registered identity for a new local handshake")
+                    }
+                    disconnectAndScheduleReconnect()
                     return
                 }
             }
         }
 
         if (!is365() && EversenseE3Packets.isPushPacket(data[0])) {
-            EversenseLogger.debug(TAG, "Keep Alive packet received (E3)!")
+            EversenseLogger.debug(TAG) { "Keep Alive packet received (E3)!" }
             submitToExecutor {
                 // Sync transmitter clock before reading glucose so the glucose timestamp
                 // reflects phone time, not the drifted transmitter clock. The official app
@@ -485,7 +490,7 @@ class EversenseGattCallback internal constructor(
         }
 
         if (data.size >= 2 && Eversense365Packets.isKeepAlivePacket(data[0], data[1])) {
-            EversenseLogger.debug(TAG, "Keep Alive packet received (365)!")
+            EversenseLogger.debug(TAG) { "Keep Alive packet received (365)!" }
 
             val packet = KeepAlivePacket()
             packet.appendData(data.toUByteArray())
@@ -542,7 +547,8 @@ class EversenseGattCallback internal constructor(
             // response ID — but earlier versions of this code checked 0x80 before checking the
             // expected response ID, causing every battery/readiness/calibration read to fail.
             if (EversenseE3Packets.isErrorPacket(data[0]) && packetAnnotation.responseId != data[0]) {
-                EversenseLogger.error(TAG, "Received error response - data: ${data.toHexString()}")
+                EversenseLogger.error(TAG, "Transmitter returned an error response")
+                EversenseLogger.debug(TAG) { "Error response data: ${data.toHexString()}" }
                 packet.isErrorResponse = true
                 exchange.complete()
                 return
@@ -643,6 +649,11 @@ class EversenseGattCallback internal constructor(
             }
 
             if (!cryptoUtil.canUseShortcut()) {
+                if (!plugin.hasInternet()) {
+                    EversenseLogger.warning(TAG, "365 registration requires internet; retaining stored identity and retrying later")
+                    disconnectAndScheduleReconnect()
+                    return
+                }
                 val clientId = cryptoUtil.getClientId()
                 val whoAmI = writePacket<AuthWhoAmIPacket.Response>(AuthWhoAmIPacket(clientId))
 
@@ -724,7 +735,7 @@ class EversenseGattCallback internal constructor(
             plugin.authenticationFailed(this.session, shortcutAttempt)
             if (!active()) return
             EversenseLogger.error(TAG, "[365] authV2 failed: $exception")
-            exception.printStackTrace()
+            EversenseLogger.debug(TAG) { exception.stackTraceToString() }
 
             bluetoothGatt?.disconnect()
         }

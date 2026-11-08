@@ -62,4 +62,13 @@ class EversenseStateStoreTest {
         assertThat(store.contains("old")).isFalse()
         assertThat(store.getBoolean("new", false)).isTrue()
     }
+    @Test fun cloudQueueUsesSeparateNonExportablePreference() {
+        val store = EversenseStateStore(context, preferences)
+        val before = stored
+        store.edit { putString(app.aaps.plugins.eversense.util.StorageKeys.CLOUD_QUEUE, "[]") }
+        verify(preferences).put(EversenseRuntimeKey.CloudQueue, "[]")
+        assertThat(stored).isEqualTo(before)
+        assertThat(EversenseRuntimeKey.CloudQueue.exportable).isFalse()
+    }
+
 }

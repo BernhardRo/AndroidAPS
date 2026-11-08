@@ -21,7 +21,7 @@ class EversenseScanner(private val callback: EversenseScanCallback): ScanCallbac
             return
         }
 
-        EversenseLogger.info(TAG, "Found Eversense device: $deviceName (address: ${scanRecord.device?.address})")
+        EversenseLogger.debug(TAG) { "Found Eversense device: $deviceName (address: ${scanRecord.device?.address})" }
         callback.onResult(EversenseScanResult(deviceName, scanRecord.rssi, scanRecord.device))
     }
 

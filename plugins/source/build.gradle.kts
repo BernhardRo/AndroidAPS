@@ -1,5 +1,6 @@
 plugins {
     id("kmp-android-library")
+    id("kotlinx-serialization")
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.metro)

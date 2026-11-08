@@ -27,4 +27,6 @@
     <!-- Instara preferences -->
     <!-- Notification Reader -->
     <!-- Permission rationales -->
+    <string name="eversense_diagnostic_logging">Diagnoseprotokollierung</string>
+    <string name="eversense_diagnostic_logging_summary">Ausführliche Bluetooth- und Sensordaten protokollieren. Nach der Fehlersuche wieder ausschalten.</string>
 </resources>

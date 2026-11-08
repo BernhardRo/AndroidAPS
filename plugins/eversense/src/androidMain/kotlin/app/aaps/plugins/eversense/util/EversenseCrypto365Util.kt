@@ -70,7 +70,7 @@ class EversenseCrypto365Util(val preference: EversenseStore) {
     fun generateKeyPairIfNotExists(): Boolean {
         val state = getState(preference)
         if (state.clientId.isNotEmpty() && state.publicKey.isNotEmpty() && state.privateKey.isNotEmpty()) {
-            EversenseLogger.debug(TAG, "Already generated keypair")
+            EversenseLogger.debug(TAG) { "Already generated keypair" }
             return true
         }
 
@@ -80,7 +80,7 @@ class EversenseCrypto365Util(val preference: EversenseStore) {
         state.publicKey = keyPair.public.encoded.toHexString()
 
         saveState(state, preference)
-        EversenseLogger.debug(TAG, "Generated keypair!")
+        EversenseLogger.debug(TAG) { "Generated keypair!" }
         return true
     }
 
@@ -121,7 +121,7 @@ class EversenseCrypto365Util(val preference: EversenseStore) {
             val data = publicKey.copyOfRange(27, publicKey.count()) + v2Salt
             return ecdsaSign(privateKey, data)
         } catch (e: Exception) {
-            e.printStackTrace()
+            EversenseLogger.debug(TAG) { e.stackTraceToString() }
             EversenseLogger.error(TAG, "Got exception during generateEphem - exception: $e")
             return null
         }
@@ -159,10 +159,9 @@ class EversenseCrypto365Util(val preference: EversenseStore) {
                 arr
             }
 
-            EversenseLogger.info(TAG, "SessionKey = ${symmetricKey.toHexString()}")
             sessionKey = symmetricKey
         } catch (e: Exception) {
-            e.printStackTrace()
+            EversenseLogger.debug(TAG) { e.stackTraceToString() }
             EversenseLogger.error(TAG, "Failed to generate sessionKey: $e")
         }
     }
@@ -289,7 +288,7 @@ class EversenseCrypto365Util(val preference: EversenseStore) {
                 }
             } catch (e: Exception) {
                 EversenseLogger.error(TAG, "AEAD-CCM encryption/decryption error: $e");
-                e.printStackTrace()
+                EversenseLogger.debug(TAG) { e.stackTraceToString() }
                 return null;
             }
         }

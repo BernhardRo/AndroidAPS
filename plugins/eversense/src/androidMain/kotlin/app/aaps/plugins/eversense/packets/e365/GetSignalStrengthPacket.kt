@@ -28,8 +28,9 @@ class GetSignalStrengthPacket : EversenseBasePacket() {
     override fun parseResponse(): Response? {
         if (receivedData.isEmpty()) return null
 
-        val hex = receivedData.joinToString(" ") { it.toString(16).padStart(2, '0') }
-        app.aaps.plugins.eversense.util.EversenseLogger.info("GetSignalStrengthPacket", "Raw response: $hex")
+        app.aaps.plugins.eversense.util.EversenseLogger.debug("GetSignalStrengthPacket") {
+            "Raw response: " + receivedData.joinToString(" ") { it.toString(16).padStart(2, '0') }
+        }
 
         // Byte [3] = sensor ID length
         val sensorIdLength = receivedData[3].toInt() and 0xFF
@@ -53,7 +54,7 @@ class GetSignalStrengthPacket : EversenseBasePacket() {
             .float
         val signalPercent = (signalFloat * 100).toInt().coerceIn(0, 100)
 
-        app.aaps.plugins.eversense.util.EversenseLogger.info("GetSignalStrengthPacket", "sensorIdLength: $sensorIdLength, signalFloat: $signalFloat -> $signalPercent%")
+        app.aaps.plugins.eversense.util.EversenseLogger.debug("GetSignalStrengthPacket") { "sensorIdLength: $sensorIdLength, signalFloat: $signalFloat -> $signalPercent%" }
         return Response(signalStrength = signalPercent)
     }
 

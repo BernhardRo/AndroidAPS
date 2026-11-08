@@ -22,6 +22,7 @@ internal class EversenseConnectionController(
     private val lock = Any()
     private var running = false
     private var wanted = false
+    private var cloudGeneration = 0L
     private var session = 0L
     private var attempts = 0
     private var lastData = 0L
@@ -70,6 +71,15 @@ internal class EversenseConnectionController(
 
     fun whileOwned(token: Long, action: () -> Unit) = synchronized(lock) {
         if (owns(token)) action()
+    }
+
+    fun cloudStore(delegate: app.aaps.plugins.eversense.storage.EversenseStore): app.aaps.plugins.eversense.storage.EversenseStore? = synchronized(lock) {
+        if (!running || !wanted) null else SessionStore(this, cloudGeneration, delegate, cloud = true)
+    }
+
+    fun <T> withCloudSession(token: Long, action: () -> T): T = synchronized(lock) {
+        if (!running || !wanted || token != cloudGeneration) throw CancellationException("Eversense cloud session has ended")
+        action()
     }
 
     fun <T> withSession(token: Long, action: () -> T): T = synchronized(lock) {
@@ -152,6 +162,7 @@ internal class EversenseConnectionController(
     }
 
     private fun invalidate(next: State) {
+        cloudGeneration++
         session++
         state = next
         retry?.cancel(); retry = null

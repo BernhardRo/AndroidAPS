@@ -143,4 +143,54 @@ class EversenseGattCallbackTest {
         } finally { worker.shutdownNow() }
     }
 
+    @Test fun registered365IdentityUsesBluetoothAuthStartWithoutInternet() {
+        val crypto: app.aaps.plugins.eversense.util.EversenseCrypto365Util = mock()
+        whenever(crypto.canUseShortcut()).thenReturn(true)
+        whenever(crypto.generateKeyPairIfNotExists()).thenReturn(true)
+        whenever(crypto.generateEphem()).thenReturn(byteArrayOf(1))
+        whenever(crypto.getStartSecret(any())).thenReturn(byteArrayOf(1))
+        doThrow(IllegalStateException("Authentication reached session-key derivation"))
+            .whenever(crypto).generateSessionKey(any())
+        EversenseGattCallback::class.java.getDeclaredField("cryptoUtil").apply { isAccessible = true; set(callback, crypto) }
+        EversenseGattCallback::class.java.getDeclaredField("security").apply {
+            isAccessible = true
+            set(callback, app.aaps.plugins.eversense.enums.EversenseSecurityType.SecureV2)
+        }
+        whenever(gatt.writeCharacteristic(characteristic)).thenAnswer {
+            val packets = app.aaps.plugins.eversense.packets.e365.Eversense365Packets
+            callback.onCharacteristicChanged(gatt, characteristic,
+                byteArrayOf(1, 1, 1, packets.AuthenticateResponseId, packets.AuthenticateStart) + ByteArray(64))
+            true
+        }
+        EversenseGattCallback::class.java.getDeclaredMethod("authV2flow").apply { isAccessible = true }.invoke(callback)
+        verify(crypto).generateSessionKey(any())
+        verify(plugin, never()).hasInternet()
+        verify(gatt).writeCharacteristic(characteristic)
+    }
+    @Test fun missing365RegistrationOfflineDoesNotAttemptHttpOrBluetoothWhoAmI() {
+        val crypto: app.aaps.plugins.eversense.util.EversenseCrypto365Util = mock()
+        whenever(crypto.canUseShortcut()).thenReturn(false)
+        whenever(crypto.generateKeyPairIfNotExists()).thenReturn(true)
+        whenever(plugin.hasInternet()).thenReturn(false)
+        EversenseGattCallback::class.java.getDeclaredField("cryptoUtil").apply { isAccessible = true; set(callback, crypto) }
+        EversenseGattCallback::class.java.getDeclaredMethod("authV2flow").apply { isAccessible = true }.invoke(callback)
+        verify(plugin).sessionDisconnected(1, BluetoothGatt.GATT_SUCCESS, false)
+        verify(gatt, never()).writeCharacteristic(any())
+    }
+
+    @Test fun offlineDecryptFailureRetainsRegisteredIdentityForLocalReconnect() {
+        val crypto: app.aaps.plugins.eversense.util.EversenseCrypto365Util = mock()
+        whenever(crypto.decrypt(any())).thenReturn(byteArrayOf())
+        whenever(plugin.hasInternet()).thenReturn(false)
+        EversenseGattCallback::class.java.getDeclaredField("cryptoUtil").apply { isAccessible = true; set(callback, crypto) }
+        EversenseGattCallback::class.java.getDeclaredField("security").apply {
+            isAccessible = true
+            set(callback, app.aaps.plugins.eversense.enums.EversenseSecurityType.SecureV2)
+        }
+        callback.onCharacteristicChanged(gatt, characteristic, byteArrayOf(1, 1, 1, 0x42, 1))
+        verify(crypto).decrypt(any())
+        verify(crypto, never()).disallowUseShortcut()
+        verify(plugin).sessionDisconnected(1, BluetoothGatt.GATT_SUCCESS, false)
+    }
+
 }

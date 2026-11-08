@@ -37,9 +37,7 @@ class GetLogRangePacket365(private val logType: LogType) : EversenseBasePacket()
             ((receivedData[9].toLong() and 0xFF) shl 16) or
             ((receivedData[10].toLong() and 0xFF) shl 24)).toInt()
 
-        app.aaps.plugins.eversense.util.EversenseLogger.info(
-            "GetLogRangePacket365", "Log range: $rangeFrom - $rangeTo"
-        )
+        app.aaps.plugins.eversense.util.EversenseLogger.debug("GetLogRangePacket365") { "Log range: $rangeFrom - $rangeTo" }
         return Response(rangeFrom = rangeFrom, rangeTo = rangeTo)
     }
 

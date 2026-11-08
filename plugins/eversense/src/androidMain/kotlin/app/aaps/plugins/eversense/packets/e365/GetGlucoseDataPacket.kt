@@ -44,7 +44,7 @@ class GetGlucoseDataPacket(private val sensorIdLen: Int) : EversenseBasePacket()
         val signalRaw = (receivedData[22 + sensorIdLen].toInt() and 0xFF) or
             ((receivedData[23 + sensorIdLen].toInt() and 0xFF) shl 8)
 
-        EversenseLogger.info("GetGlucoseDataPacket", "Sensor signal strength raw: $signalRaw")
+        EversenseLogger.debug("GetGlucoseDataPacket") { "Sensor signal strength raw: $signalRaw" }
 
         val sensorId = receivedData.copyOfRange(12, 12 + sensorIdLen)
             .toByteArray().joinToString("") { "%02x".format(it) }
