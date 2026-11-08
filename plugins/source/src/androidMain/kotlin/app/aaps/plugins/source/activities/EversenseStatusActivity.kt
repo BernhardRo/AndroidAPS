@@ -11,7 +11,6 @@ import android.widget.Button
 import android.widget.Spinner
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.widget.Toolbar
 import app.aaps.core.ui.compose.MetroAppCompatActivity
 import app.aaps.plugins.source.R
 import app.aaps.plugins.eversense.EversenseCGMPlugin
@@ -76,10 +75,7 @@ class EversenseStatusActivity : MetroAppCompatActivity(), EversenseWatcher {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_eversense_status)
 
-        val toolbar = findViewById<Toolbar>(R.id.toolbar)
-        setSupportActionBar(toolbar)
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.title = getString(R.string.eversense_status_title)
+        configureEversenseNavigation(R.string.eversense_status_title)
 
         updateStatus()
 

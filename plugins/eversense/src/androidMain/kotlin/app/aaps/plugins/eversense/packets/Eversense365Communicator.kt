@@ -206,8 +206,13 @@ class Eversense365Communicator {
                 // Send app version — iOS sends "8.0.4" in every fullSync
                 try { gatt.writePacket<SetAppVersion365Packet.Response>(SetAppVersion365Packet()) } catch (e: Exception) { EversenseLogger.warning(TAG, "SetAppVersion failed: $e") }
 
-                // Set BLE disconnect timeout to 0 = never disconnect
-                try { gatt.writePacket<SetBleDisconnect365Packet.Response>(SetBleDisconnect365Packet(0)) } catch (e: Exception) { EversenseLogger.warning(TAG, "SetBleDisconnect failed: $e") }
+                // Test the packet's standard five-minute interval; this firmware rejects zero.
+                try {
+                    gatt.writePacket<SetBleDisconnect365Packet.Response>(SetBleDisconnect365Packet(300))
+                    EversenseLogger.info(TAG, "SetBleDisconnect accepted: 300 seconds")
+                } catch (e: Exception) {
+                    EversenseLogger.warning(TAG, "SetBleDisconnect (300 seconds) failed: $e")
+                }
 
                 // Read active alarms
                 try {

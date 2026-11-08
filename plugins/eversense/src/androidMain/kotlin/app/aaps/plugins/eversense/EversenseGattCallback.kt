@@ -542,6 +542,19 @@ class EversenseGattCallback internal constructor(
                 return
             }
 
+            // SecureV2 rejects a command with [0xff, command type, error code].
+            // Complete the matching exchange as rejected, rather than timing out and
+            // tearing down an authenticated link (observed: ff 0e 05 for SetAppVersion).
+            if (security == EversenseSecurityType.SecureV2 &&
+                data.size == 3 && data[0] == 0xff.toByte() &&
+                data[1] == packetAnnotation.typeId
+            ) {
+                EversenseLogger.warning(TAG, "365 command rejected - type: ${data[1].toInt() and 0xff}, error: ${data[2].toInt() and 0xff}")
+                packet.isErrorResponse = true
+                exchange.complete()
+                return
+            }
+
             // Only treat 0x80 as an error if it is NOT the expected response ID for this packet.
             // ReadSingleByteSerialFlashRegister responses legitimately use 0xAA (170) as their
             // response ID — but earlier versions of this code checked 0x80 before checking the
