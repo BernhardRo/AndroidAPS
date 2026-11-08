@@ -18,8 +18,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
+import app.aaps.plugins.source.eversense.PositioningSession
 import java.text.DateFormat
 import java.util.Date
 import dev.zacsweers.metro.Inject
@@ -43,26 +43,13 @@ class EversensePlacementActivity : MetroAppCompatActivity(), EversenseWatcher {
 
     private val timeFormatter: DateFormat = DateFormat.getTimeInstance(DateFormat.MEDIUM)
 
-    @Volatile private var polling = false
-
-    // Mirrors iOS PlacementGuideViewModel.updateSignalStrength(): a single background
-    // thread that reads signal, sleeps 500ms, then loops. Chained (not Handler-scheduled)
-    // so each read completes before the next starts — prevents GATT queue pile-up.
-    private fun startPolling() {
-        if (polling) return
-        polling = true
-        ioScope.launch {
-            while (polling) {
-                if (eversense.isConnected()) {
-                    eversense.readSignalStrength()
-                }
-                delay(500)
-            }
-        }
-    }
-
-    private fun stopPolling() {
-        polling = false
+    private var resumed = false
+    private val positioning by lazy {
+        PositioningSession(ioScope,
+            enter = { runInterruptible { eversense.enterPositioningMode() } },
+            read = { runInterruptible { if (eversense.isConnected()) eversense.readSignalStrength() } },
+            exit = { runInterruptible { eversense.exitPositioningMode() } }
+        )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -84,7 +71,6 @@ class EversensePlacementActivity : MetroAppCompatActivity(), EversenseWatcher {
         instructionText = findViewById(R.id.instruction_text)
         lastUpdateText = findViewById(R.id.last_update_text)
 
-        eversense.addWatcher(this)
 
         val state = eversense.getCurrentState()
         if (state != null && state.sensorSignalStrength > 0) {
@@ -98,17 +84,17 @@ class EversensePlacementActivity : MetroAppCompatActivity(), EversenseWatcher {
 
     override fun onResume() {
         super.onResume()
-        ioScope.launch {
-            delay(500)
-            eversense.enterPositioningMode()
-            startPolling()
-        }
+        resumed = true
+        eversense.addWatcher(this)
+        positioning.resume()
     }
 
     override fun onPause() {
+        resumed = false
+        positioning.pause()
+        eversense.removeWatcher(this)
+        mainHandler.removeCallbacksAndMessages(null)
         super.onPause()
-        stopPolling()
-        CoroutineScope(Dispatchers.IO).launch { eversense.exitPositioningMode() }
     }
 
     override fun onDestroy() {
@@ -124,6 +110,7 @@ class EversensePlacementActivity : MetroAppCompatActivity(), EversenseWatcher {
 
     override fun onStateChanged(state: EversenseState) {
         mainHandler.post {
+            if (!resumed) return@post
             if (state.sensorSignalStrength > 0) {
                 updateSignalUI(state.sensorSignalStrength)
                 lastUpdateText.text = getString(R.string.eversense_placement_last_update, timeFormatter.format(Date()))
@@ -134,7 +121,7 @@ class EversensePlacementActivity : MetroAppCompatActivity(), EversenseWatcher {
     }
 
     override fun onConnectionChanged(connected: Boolean) {
-        mainHandler.post { if (!connected) showNotConnected() }
+        mainHandler.post { if (resumed && !connected) showNotConnected() }
     }
 
     override fun onCGMRead(type: EversenseType, readings: List<EversenseCGMResult>) {}

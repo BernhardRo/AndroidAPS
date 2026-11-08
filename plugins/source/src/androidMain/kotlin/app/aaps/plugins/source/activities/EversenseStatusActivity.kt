@@ -1,6 +1,5 @@
 package app.aaps.plugins.source.activities
 
-import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -35,24 +34,32 @@ class EversenseStatusActivity : MetroAppCompatActivity(), EversenseWatcher {
 
     @Inject lateinit var eversense: EversenseCGMPlugin
 
+    private var scanSession: AutoCloseable? = null
+    private var scanDialog: AlertDialog? = null
+    private var resumed = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val dateFormatter = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
 
     override fun onResume() {
         super.onResume()
+        resumed = true
         eversense.addWatcher(this)
         updateStatus()
     }
 
     override fun onPause() {
         super.onPause()
+        resumed = false
+        scanSession?.close(); scanSession = null
+        scanDialog?.dismiss(); scanDialog = null
+        mainHandler.removeCallbacksAndMessages(null)
         eversense.removeWatcher(this)
     }
 
     // EversenseWatcher: update button instantly on connection/state change
-    override fun onConnectionChanged(connected: Boolean) { mainHandler.post { updateStatus() } }
-    override fun onStateChanged(state: EversenseState) { mainHandler.post { updateStatus() } }
+    override fun onConnectionChanged(connected: Boolean) { mainHandler.post { if (resumed) updateStatus() } }
+    override fun onStateChanged(state: EversenseState) { mainHandler.post { if (resumed) updateStatus() } }
 
     // isConnected() is connected && transmitterReady. onConnectionChanged(true) fires as soon as
     // the raw BLE link comes up, before the auth handshake finishes - at that point isConnected()
@@ -60,7 +67,7 @@ class EversenseStatusActivity : MetroAppCompatActivity(), EversenseWatcher {
     // once auth completes, and that transition notifies watchers via onTransmitterReady() instead
     // of onConnectionChanged() again. Without refreshing here too, the screen never learns the
     // handshake finished and is stuck showing the red X until it's reopened.
-    override fun onTransmitterReady() { mainHandler.post { updateStatus() } }
+    override fun onTransmitterReady() { mainHandler.post { if (resumed) updateStatus() } }
     override fun onTransmitterNotPlaced() {}
     override fun onAlarmReceived(alarm: ActiveAlarm) {}
     override fun onCGMRead(type: app.aaps.plugins.eversense.enums.EversenseType, readings: List<app.aaps.plugins.eversense.models.EversenseCGMResult>) {}
@@ -194,20 +201,22 @@ class EversenseStatusActivity : MetroAppCompatActivity(), EversenseWatcher {
             }
         }
 
-        eversense.startScan(scanCallback)
+        scanSession?.close()
+        val lease = eversense.startScan(scanCallback)
+        scanSession = lease
 
         mainHandler.postDelayed({
-            if (isCancelled) return@postDelayed
-            eversense.stopScan()
+            if (isCancelled || !resumed) return@postDelayed
+            lease.close()
             dialog?.dismiss()
             if (foundDevices.isEmpty()) {
-                AlertDialog.Builder(this)
+                scanDialog = AlertDialog.Builder(this)
                     .setTitle(getString(R.string.eversense_scan_title))
                     .setMessage(getString(R.string.eversense_no_transmitters_found))
                     .setPositiveButton(android.R.string.ok, null)
                     .show()
             } else {
-                AlertDialog.Builder(this)
+                scanDialog = AlertDialog.Builder(this)
                     .setTitle(getString(R.string.eversense_scan_title))
                     .setItems(foundDevices.map { it.name }.toTypedArray()) { _, position ->
                         ioScope.launch { eversense.connect(foundDevices[position].device) }
@@ -223,10 +232,11 @@ class EversenseStatusActivity : MetroAppCompatActivity(), EversenseWatcher {
             .setMessage(getString(R.string.eversense_scan_in_progress))
             .setNegativeButton(getString(R.string.eversense_scan_cancel)) { _, _ ->
                 isCancelled = true
-                eversense.stopScan()
+                lease.close()
             }
             .setCancelable(false)
             .show()
+        scanDialog = dialog
     }
 
     private fun signalToLabel(strength: Int): String = when {
