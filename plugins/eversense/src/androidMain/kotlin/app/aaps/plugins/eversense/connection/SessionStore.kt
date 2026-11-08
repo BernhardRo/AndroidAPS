@@ -7,13 +7,17 @@ internal class SessionStore(
     private val controller: EversenseConnectionController,
     private val session: Long,
     private val delegate: EversenseStore,
-    private val valid: () -> Boolean = { true }
+    private val valid: () -> Boolean = { true },
+    private val cloud: Boolean = false
 ) : EversenseStore {
-    fun restrict(valid: () -> Boolean) = SessionStore(controller, session, this, valid)
+    fun restrict(valid: () -> Boolean) = SessionStore(controller, session, this, valid, cloud)
 
-    private fun <T> guard(action: () -> T): T = controller.withSession(session) {
-        if (!valid()) throw java.util.concurrent.CancellationException("Eversense link has ended")
-        action()
+    private fun <T> guard(action: () -> T): T {
+        val checked = {
+            if (!valid()) throw java.util.concurrent.CancellationException("Eversense link has ended")
+            action()
+        }
+        return if (cloud) controller.withCloudSession(session, checked) else controller.withSession(session, checked)
     }
 
     override fun getString(key: String, defaultValue: String?) = guard { delegate.getString(key, defaultValue) }

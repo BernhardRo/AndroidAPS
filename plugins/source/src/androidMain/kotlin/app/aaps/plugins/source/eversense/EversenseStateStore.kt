@@ -2,6 +2,7 @@ package app.aaps.plugins.source.eversense
 
 import android.content.Context
 import app.aaps.core.keys.interfaces.Preferences
+import app.aaps.plugins.eversense.util.StorageKeys
 import app.aaps.plugins.eversense.storage.EversenseStore
 import app.aaps.plugins.source.keys.EversenseRuntimeKey
 import dev.zacsweers.metro.AppScope
@@ -44,11 +45,16 @@ class EversenseStateStore(context: Context, private val preferences: Preferences
     }
 
     private fun read(): JsonObject = Json.parseToJsonElement(preferences.get(EversenseRuntimeKey.DeviceState)).jsonObject
-    override fun getString(key: String, defaultValue: String?): String? = synchronized(lock) { read()[key]?.jsonPrimitive?.contentOrNull ?: defaultValue }
+    override fun getString(key: String, defaultValue: String?): String? = synchronized(lock) {
+        if (key == StorageKeys.CLOUD_QUEUE) preferences.getIfExists(EversenseRuntimeKey.CloudQueue) ?: defaultValue
+        else read()[key]?.jsonPrimitive?.contentOrNull ?: defaultValue
+    }
     override fun getLong(key: String, defaultValue: Long): Long = synchronized(lock) { read()[key]?.jsonPrimitive?.longOrNull ?: defaultValue }
     override fun getInt(key: String, defaultValue: Int): Int = synchronized(lock) { read()[key]?.jsonPrimitive?.intOrNull ?: defaultValue }
     override fun getBoolean(key: String, defaultValue: Boolean): Boolean = synchronized(lock) { read()[key]?.jsonPrimitive?.booleanOrNull ?: defaultValue }
-    override fun contains(key: String): Boolean = synchronized(lock) { key in read() }
+    override fun contains(key: String): Boolean = synchronized(lock) {
+        if (key == StorageKeys.CLOUD_QUEUE) preferences.getIfExists(EversenseRuntimeKey.CloudQueue) != null else key in read()
+    }
 
     override fun edit(): EversenseStore.Editor = object : EversenseStore.Editor {
         private val changes = mutableMapOf<String, JsonElement?>()
@@ -61,9 +67,17 @@ class EversenseStateStore(context: Context, private val preferences: Preferences
         override fun clear() = apply { clearAll = true }
         override fun commit(): Boolean {
             synchronized(lock) {
-                val updated = if (clearAll) mutableMapOf() else read().toMutableMap()
-                changes.forEach { (key, value) -> if (value == null) updated.remove(key) else updated[key] = value }
-                preferences.put(EversenseRuntimeKey.DeviceState, JsonObject(updated).toString())
+                if (clearAll || changes.keys.any { it != StorageKeys.CLOUD_QUEUE }) {
+                    val updated = if (clearAll) mutableMapOf() else read().toMutableMap()
+                    changes.filterKeys { it != StorageKeys.CLOUD_QUEUE }.forEach { (key, value) ->
+                        if (value == null) updated.remove(key) else updated[key] = value
+                    }
+                    preferences.put(EversenseRuntimeKey.DeviceState, JsonObject(updated).toString())
+                }
+                if (clearAll || StorageKeys.CLOUD_QUEUE in changes) {
+                    preferences.put(EversenseRuntimeKey.CloudQueue,
+                        changes[StorageKeys.CLOUD_QUEUE]?.jsonPrimitive?.contentOrNull ?: "[]")
+                }
             }
             return true
         }

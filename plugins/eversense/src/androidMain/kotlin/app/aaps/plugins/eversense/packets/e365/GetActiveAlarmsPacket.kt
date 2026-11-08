@@ -41,7 +41,7 @@ class GetActiveAlarmsPacket : EversenseBasePacket() {
         }
 
         alarms.sortBy { it.priority }
-        EversenseLogger.info("GetActiveAlarmsPacket", "Active alarms: ${alarms.map { it.code.title }}")
+        EversenseLogger.debug("GetActiveAlarmsPacket") { "Active alarms: ${alarms.map { it.code.title }}" }
         return Response(count = count, alarms = alarms)
     }
 

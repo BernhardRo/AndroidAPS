@@ -280,4 +280,6 @@
 <string name="eversense_european_region_summary">Routes login and cloud sync through Eversense\'s European servers instead of the US ones. Leave off for a US transmitter.</string>
 
 
+    <string name="eversense_diagnostic_logging">Diagnostic logging</string>
+    <string name="eversense_diagnostic_logging_summary">Record detailed Bluetooth and sensor data. Turn off after troubleshooting.</string>
 </resources>

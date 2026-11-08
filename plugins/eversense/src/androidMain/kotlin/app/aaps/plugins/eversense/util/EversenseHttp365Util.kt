@@ -278,7 +278,7 @@ class EversenseHttp365Util {
                     )
                 }
 
-                EversenseLogger.info(TAG, "Uploading ${uploadable.size} reading(s) — TransmitterId='$transmitterSerialNumber'")
+                EversenseLogger.debug(TAG) { "Uploading ${uploadable.size} reading(s) — TransmitterId='$transmitterSerialNumber'" }
 
                 // Counted, not filtered: a reading with no sensorId is still sent, because dropping
                 // it would trade one silent loss for another. Reported so a portal gap can be tied
@@ -296,7 +296,7 @@ class EversenseHttp365Util {
                         r.rawResponseHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
                     )
                     val ts = dateFormatter.get().format(Date(r.datetime))
-                    EversenseLogger.info(TAG, "  Reading: glucose=${r.glucoseInMgDl} ts=$ts rawHex=${r.rawResponseHex.length / 2}B")
+                    EversenseLogger.debug(TAG) { "  Reading: glucose=${r.glucoseInMgDl} ts=$ts rawHex=${r.rawResponseHex.length / 2}B" }
                     """{"SensorId":"$portalSensorId","TransmitterId":"$transmitterSerialNumber","Timestamp":"$ts","CurrentGlucoseValue":${r.glucoseInMgDl},"CurrentGlucoseDateTime":"$ts","FWVersion":"$firmwareVersion","EssentialLog":"$essentialLog"}"""
                 }
 
@@ -318,7 +318,8 @@ class EversenseHttp365Util {
                 val responseCode = conn.responseCode
                 if (responseCode >= 400) {
                     val error = try { conn.errorStream?.readBytes()?.toString(Charsets.UTF_8) ?: "" } catch (e: Exception) { "" }
-                    EversenseLogger.error(TAG, "Glucose upload failed — status: $responseCode, body: $error")
+                    EversenseLogger.error(TAG, "Glucose upload failed — status: $responseCode")
+                    EversenseLogger.debug(TAG) { "Cloud response body: $error" }
                     UploadOutcome(
                         success = false,
                         sentCount = 0,
@@ -329,7 +330,8 @@ class EversenseHttp365Util {
                     )
                 } else {
                     val responseBody = try { conn.inputStream.readBytes().toString(Charsets.UTF_8) } catch (e: Exception) { "" }
-                    EversenseLogger.info(TAG, "Glucose upload success — status: $responseCode, readings: ${uploadable.size}, body: $responseBody")
+                    EversenseLogger.info(TAG, "Glucose upload success — status: $responseCode, readings: ${uploadable.size}")
+                    EversenseLogger.debug(TAG) { "Cloud response body: $responseBody" }
                     // Carried out, but the body is what tells us whether the server actually kept
                     // the reading - a 2xx alone has proven not to mean it landed in the portal.
                     UploadOutcome(
@@ -382,11 +384,13 @@ class EversenseHttp365Util {
                 val responseCode = conn.responseCode
                 if (responseCode >= 400) {
                     val error = try { conn.errorStream?.readBytes()?.toString(Charsets.UTF_8) ?: "" } catch (e: Exception) { "" }
-                    EversenseLogger.error(TAG, "PutCurrentValues failed — status: $responseCode, body: $error")
+                    EversenseLogger.error(TAG, "PutCurrentValues failed — status: $responseCode")
+                    EversenseLogger.debug(TAG) { "Cloud response body: $error" }
                     UploadOutcome(success = false, httpStatus = responseCode, responseBody = error)
                 } else {
                     val responseBody = try { conn.inputStream.readBytes().toString(Charsets.UTF_8) } catch (e: Exception) { "" }
-                    EversenseLogger.info(TAG, "PutCurrentValues success — status: $responseCode, glucose=$glucose, body: $responseBody")
+                    EversenseLogger.debug(TAG) { "PutCurrentValues success — status: $responseCode, glucose=$glucose" }
+                    EversenseLogger.debug(TAG) { "Cloud response body: $responseBody" }
                     UploadOutcome(success = true, sentCount = 1, httpStatus = responseCode, responseBody = responseBody)
                 }
             } catch (e: Exception) {
@@ -424,7 +428,7 @@ class EversenseHttp365Util {
                 val patientBytes = EversenseDmsBinaryCodec.buildEmptyPatientBytes()
                 val alertBytes = EversenseDmsBinaryCodec.buildAlertBytes(sensorId, alerts, readings.lastOrNull()?.datetime ?: System.currentTimeMillis(), readings.lastOrNull()?.glucoseInMgDl ?: 0)
 
-                EversenseLogger.info(TAG, "PutDeviceEvents: ${readings.size} reading(s), txId='$transmitterSerialNumber', sensorId='$sensorId'")
+                EversenseLogger.debug(TAG) { "PutDeviceEvents: ${readings.size} reading(s), txId='$transmitterSerialNumber', sensorId='$sensorId'" }
 
                 val jsonBody = """{"deviceType":"SMSIMeter","deviceName":"Smart Transmitter (Android)","deviceID":"$transmitterSerialNumber","offsetBytes":"$offsetBytes","sgBytes":"$sgBytes","mgBytes":"$mgBytes","patientBytes":"$patientBytes","alertBytes":"$alertBytes","algorithmVersion":"10"}"""
 
@@ -442,11 +446,13 @@ class EversenseHttp365Util {
                 val responseCode = conn.responseCode
                 if (responseCode >= 400) {
                     val error = try { conn.errorStream?.readBytes()?.toString(Charsets.UTF_8) ?: "" } catch (e: Exception) { "" }
-                    EversenseLogger.error(TAG, "PutDeviceEvents failed — status: $responseCode, body: $error")
+                    EversenseLogger.error(TAG, "PutDeviceEvents failed — status: $responseCode")
+                    EversenseLogger.debug(TAG) { "Cloud response body: $error" }
                     UploadOutcome(success = false, httpStatus = responseCode, responseBody = error)
                 } else {
                     val responseBody = try { conn.inputStream.readBytes().toString(Charsets.UTF_8) } catch (e: Exception) { "" }
-                    EversenseLogger.info(TAG, "PutDeviceEvents success — status: $responseCode, readings: ${readings.size}, body: $responseBody")
+                    EversenseLogger.info(TAG, "PutDeviceEvents success — status: $responseCode, readings: ${readings.size}")
+                    EversenseLogger.debug(TAG) { "Cloud response body: $responseBody" }
                     UploadOutcome(
                         success = true,
                         sentCount = readings.size,

@@ -64,7 +64,7 @@ class GetGlucoseLogValuesPacket(
             history.add(GlucoseHistoryItem(valueInMgDl = glucose, datetime = datetime, trend = trend, rawResponseHex = rawHex))
         }
 
-        EversenseLogger.info("GetGlucoseLogValuesPacket", "History records: ${history.size}")
+        EversenseLogger.debug("GetGlucoseLogValuesPacket") { "History records: ${history.size}" }
         return Response(count = history.size, glucoseHistory = history)
     }
 

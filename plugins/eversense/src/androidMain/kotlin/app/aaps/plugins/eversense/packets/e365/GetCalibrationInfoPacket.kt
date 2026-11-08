@@ -41,7 +41,7 @@ class GetCalibrationInfoPacket : EversenseBasePacket() {
         }
         val calPerDay = receivedData[12].toInt()
         val rawReadiness = receivedData[3].toInt() and 0xFF
-        EversenseLogger.info("GetCalibrationInfoPacket", "Raw calibration readiness byte: $rawReadiness (0x${rawReadiness.toString(16)})")
+        EversenseLogger.debug("GetCalibrationInfoPacket") { "Raw calibration readiness byte: $rawReadiness (0x${rawReadiness.toString(16)})" }
         return Response(
             currentPhase = CalibrationPhase.from365(receivedData[2].toInt(), calPerDay),
             calibrationReadiness = CalibrationReadiness.from365(rawReadiness),

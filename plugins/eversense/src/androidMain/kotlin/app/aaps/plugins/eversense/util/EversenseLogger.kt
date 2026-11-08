@@ -8,7 +8,6 @@ import java.io.InputStream
 
 class EversenseLogger private constructor(logDir: String) {
     private val lc = LoggerContext()
-    private var isEnabled: Boolean = true
 
     init {
         val config = JoranConfigurator()
@@ -21,44 +20,20 @@ class EversenseLogger private constructor(logDir: String) {
         val stream: InputStream = ByteArrayInputStream(LOGBACK_XML.toByteArray())
         try {
             config.doConfigure(stream)
+            lc.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).level =
+                if (isDiagnosticLoggingEnabled) ch.qos.logback.classic.Level.DEBUG else ch.qos.logback.classic.Level.INFO
         } catch (e: JoranException) {
-            e.printStackTrace()
+            android.util.Log.e("EversenseLogger", "Could not configure logging: ${e.javaClass.simpleName}")
         }
     }
 
     private fun debug(tag: String, message: String) {
-        if (!isEnabled) { return }
-
-        lc.getLogger(tag).debug(logLocationPrefix() + message)
+        lc.getLogger(tag).debug(message)
     }
 
-    private fun info(tag: String, message: String) {
-        if (!isEnabled) { return }
-        lc.getLogger(tag).info(logLocationPrefix() + message)
-    }
-
-    private fun warning(tag: String, message: String) {
-        if (!isEnabled) { return }
-        lc.getLogger(tag).warn(logLocationPrefix() + message)
-    }
-
-    private fun error(tag: String, message: String) {
-        if (!isEnabled) { return }
-        lc.getLogger(tag).error(logLocationPrefix() + message)
-    }
-
-    private fun enableLogging(value: Boolean) {
-        this.isEnabled = value
-    }
-
-    private fun logLocationPrefix(): String {
-        val stackInfo = Throwable().stackTrace[4]
-        val className = stackInfo.className.substringAfterLast(".")
-        val methodName = stackInfo.methodName
-        val lineNumber = stackInfo.lineNumber
-
-        return "$className.$methodName():$lineNumber]: "
-    }
+    private fun info(tag: String, message: String) { lc.getLogger(tag).info(message) }
+    private fun warning(tag: String, message: String) { lc.getLogger(tag).warn(message) }
+    private fun error(tag: String, message: String) { lc.getLogger(tag).error(message) }
 
     companion object {
         // Fallback if configure() is never called before the first log call (e.g. a unit test, or
@@ -90,8 +65,21 @@ class EversenseLogger private constructor(logDir: String) {
             }
         }
 
-        fun debug(tag: String, message: String) {
-            instance.debug(tag, message)
+        @Volatile var isDiagnosticLoggingEnabled: Boolean = false
+            private set
+
+        fun setDiagnosticLogging(enabled: Boolean) = synchronized(this) {
+            isDiagnosticLoggingEnabled = enabled
+            configuredInstance?.lc?.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME)?.level =
+                if (enabled) ch.qos.logback.classic.Level.DEBUG else ch.qos.logback.classic.Level.INFO
+        }
+
+        fun debug(tag: String, message: () -> String) {
+            if (isDiagnosticLoggingEnabled) instance.debug(tag, message())
+        }
+
+        inline fun diagnostic(block: () -> Unit) {
+            if (isDiagnosticLoggingEnabled) block()
         }
 
         fun info(tag: String, message: String) {
@@ -104,10 +92,6 @@ class EversenseLogger private constructor(logDir: String) {
 
         fun error(tag: String, message: String) {
             instance.error(tag, message)
-        }
-
-        fun enableLogging(value: Boolean) {
-            instance.enableLogging(value)
         }
 
         private const val LOGBACK_XML: String = "<configuration>\n" +
@@ -143,7 +127,7 @@ class EversenseLogger private constructor(logDir: String) {
             "    </appender>\n" +
             "\n" +
             "    <!-- Write INFO (and higher-level) messages to the log file -->\n" +
-            "    <root level=\"DEBUG\">\n" +
+            "    <root level=\"INFO\">\n" +
             "        <appender-ref ref=\"file\" />\n" +
             "        <appender-ref ref=\"logcat\" />\n" +
             "    </root>\n" +

@@ -63,4 +63,19 @@ class SessionStoreTest {
         assertThrows(CancellationException::class.java) { pending.apply() }
         verify(editor, never()).apply()
     }
+    @Test fun cloudStoreSurvivesBleDisconnectAndFreshGattButNotSignOutOrStop() {
+        store()
+        val cloud = controller.cloudStore(delegate)!!
+        controller.disconnected(token, 133)
+        cloud.edit().putString("token", "valid").apply()
+        controller.connect(force = true)
+        cloud.edit().putString("token", "still valid").apply()
+        controller.disconnect()
+        assertThrows(CancellationException::class.java) { cloud.edit() }
+        controller.connect()
+        val next = controller.cloudStore(delegate)!!
+        controller.stop()
+        assertThrows(CancellationException::class.java) { next.edit() }
+    }
+
 }

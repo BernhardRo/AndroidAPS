@@ -60,7 +60,6 @@ class EversenseCGMPlugin(
         val extFilesDir = context.getExternalFilesDir(null)
         val eversenseLogDir = if (extFilesDir != null) File(extFilesDir, "eversense").absolutePath else "/sdcard/AndroidAPS/eversense"
         EversenseLogger.configure(eversenseLogDir)
-        EversenseLogger.enableLogging(true)
     }
 
     @Volatile private var activeCallback: EversenseGattCallback? = null
@@ -91,6 +90,7 @@ class EversenseCGMPlugin(
     }
     internal fun authenticationFailed(session: Long, shortcut: Boolean) = connection.whileOwned(session) {
         if (shortcut) {
+            if (!hasInternet()) return@whileOwned
             if (++shortcutFailures >= 3) {
                 shortcutFailures = 0
                 EversenseCrypto365Util(preferences).disallowUseShortcut()
@@ -152,6 +152,15 @@ class EversenseCGMPlugin(
 
     fun removeWatcher(watcher: EversenseWatcher) {
         watchers.remove(watcher)
+    }
+
+    fun cloudStore(): EversenseStore? = connection.cloudStore(preferences)
+
+    fun hasInternet(): Boolean {
+        val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java) ?: return false
+        val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork) ?: return false
+        return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
     fun activeSessionStore(): EversenseStore? = activeCallback?.takeIf { sessionActive(it.session) }?.stateStore
@@ -236,6 +245,7 @@ class EversenseCGMPlugin(
                 putString(StorageKeys.SECURE_STATE, JSON.encodeToString(state))
                 remove(StorageKeys.ACCESS_TOKEN)
                 remove(StorageKeys.ACCESS_TOKEN_EXPIRY)
+                remove(StorageKeys.CLOUD_QUEUE)
             }
         }
         if (username.isNotEmpty() && password.isNotEmpty()) connection.connect()
@@ -254,6 +264,7 @@ class EversenseCGMPlugin(
             putString(StorageKeys.SECURE_STATE, JSON.encodeToString(state))
             remove(StorageKeys.ACCESS_TOKEN)
             remove(StorageKeys.ACCESS_TOKEN_EXPIRY)
+            remove(StorageKeys.CLOUD_QUEUE)
         }
     }
 
@@ -377,7 +388,7 @@ class EversenseCGMPlugin(
             store.edit(commit = true) {
                 putString(StorageKeys.STATE, JSON.encodeToString(updatedState))
             }
-            EversenseLogger.info(TAG, "Updated calibration state: lastCalibrationDate=$timestampMs, readiness=WAITING_POST_CALIBRATION")
+            EversenseLogger.debug(TAG) { "Updated calibration state: lastCalibrationDate=$timestampMs, readiness=WAITING_POST_CALIBRATION" }
 
             if (!callback.is365()) {
                 callback.submitToExecutor(readyOnly = true) {
@@ -389,7 +400,7 @@ class EversenseCGMPlugin(
                         store.edit(commit = true) {
                             putString(StorageKeys.STATE, JSON.encodeToString(currentState))
                         }
-                        EversenseLogger.info(TAG, "Post-calibration readiness re-read: ${readinessResponse.readiness}")
+                        EversenseLogger.debug(TAG) { "Post-calibration readiness re-read: ${readinessResponse.readiness}" }
                         watchersFor(callback.session).forEach { it.onStateChanged(currentState) }
                     } catch (e: Exception) {
                         EversenseLogger.warning(TAG, "Post-calibration readiness re-read failed (non-fatal): $e")
@@ -411,7 +422,7 @@ class EversenseCGMPlugin(
             return
         }
         if (callback.is365()) {
-            EversenseLogger.info(TAG, "365 transmitter — skipping submitToExecutorAndSync (authV2flow handles it)")
+            EversenseLogger.debug(TAG) { "365 transmitter — skipping submitToExecutorAndSync (authV2flow handles it)" }
             return
         }
         callback.submitToExecutor(readyOnly = true) {
@@ -426,7 +437,7 @@ class EversenseCGMPlugin(
                     EversenseLogger.warning(TAG, "Failed to re-enable diagnostic mode after reconnect: $e")
                 }
             }
-            EversenseLogger.info(TAG, "Running E3 fullSync on bleExecutor after connect")
+            EversenseLogger.debug(TAG) { "Running E3 fullSync on bleExecutor after connect" }
             EversenseE3Communicator.fullSync(callback, callback.stateStore, watchersFor(callback.session), force)
         }
     }
@@ -456,7 +467,7 @@ class EversenseCGMPlugin(
         val state = JSON.decodeFromString<EversenseState>(stateJson)
         state.placementSignalRssi = rssi
         callback.stateStore.edit { putString(StorageKeys.STATE, JSON.encodeToString(state)) }
-        EversenseLogger.debug(TAG, "RSSI updated: $rssi dBm")
+        EversenseLogger.debug(TAG) { "RSSI updated: $rssi dBm" }
         watchersFor(session).forEach { it.onStateChanged(state) }
     }
 
@@ -474,7 +485,7 @@ class EversenseCGMPlugin(
                     response.signalStrength
                 } else {
                     val response = callback.writePacket<GetSignalStrengthRawPacket.Response>(GetSignalStrengthRawPacket())
-                    EversenseLogger.info(TAG, "E3 signal raw: ${response.rawValue} -> ${response.signalStrength}%")
+                    EversenseLogger.debug(TAG) { "E3 signal raw: ${response.rawValue} -> ${response.signalStrength}%" }
                     response.signalStrength
                 }
             }
@@ -483,7 +494,7 @@ class EversenseCGMPlugin(
             val state = JSON.decodeFromString<EversenseState>(stateJson)
             state.sensorSignalStrength = signalStrength
             store.edit { putString(StorageKeys.STATE, JSON.encodeToString(state)) }
-            EversenseLogger.info(TAG, "Signal strength: $signalStrength%")
+            EversenseLogger.debug(TAG) { "Signal strength: $signalStrength%" }
             watchersFor(callback.session).forEach { it.onStateChanged(state) }
         } catch (e: Exception) {
             EversenseLogger.warning(TAG, "readSignalStrength failed: $e")

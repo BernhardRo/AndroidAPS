@@ -43,6 +43,9 @@ class EversensePluginTest {
         assertThat(plugin.pluginDescription.defaultPlugin).isFalse()
         val screen = plugin.getPreferenceScreenContent()
         assertThat(screen.items).contains(EversenseBooleanKey.EversenseCloudUploadEnabled)
+        assertThat(screen.items).contains(EversenseBooleanKey.EversenseDiagnosticLogging)
+        assertThat(EversenseBooleanKey.EversenseDiagnosticLogging.defaultValue).isFalse()
+        assertThat(EversenseBooleanKey.EversenseDiagnosticLogging.exportable).isFalse()
         assertThat(EversenseBooleanKey.entries.all { it.preferenceType == PreferenceType.SWITCH }).isTrue()
         val credentials = screen.items.filterIsInstance<PreferenceSubScreenDef>().single()
         assertThat(credentials.items).containsAtLeast(CredentialsKey.EversenseUsername, CredentialsKey.EversensePassword)
@@ -119,6 +122,31 @@ class EversensePluginTest {
         plugin.onStop()
         verify(backend).removeWatcher(plugin)
         verify(backend).stop()
+    }
+
+    @Test fun localGlucosePersistenceContinuesWhenCloudQueueFails() = runBlocking {
+        val backend: EversenseCGMPlugin = mock()
+        val preferences: Preferences = mock()
+        whenever(backend.getCurrentState()).thenReturn(EversenseState())
+        whenever(preferences.get(EversenseBooleanKey.EversenseCloudUploadEnabled)).thenReturn(true)
+        val cloudFailed = CompletableDeferred<Unit>()
+        whenever(backend.cloudStore()).thenAnswer { cloudFailed.complete(Unit); throw IllegalStateException("cloud unavailable") }
+        val persistence: PersistenceLayer = mock()
+        val received = kotlinx.coroutines.channels.Channel<List<GV>>(2)
+        whenever(persistence.insertCgmSourceData(any(), any(), any(), anyOrNull())).thenAnswer {
+            received.trySend(it.getArgument(1))
+            PersistenceLayer.TransactionResult<GV>()
+        }
+        val plugin = EversensePlugin(mock(), mock(), mock(), preferences, mock(), mock(), { backend }, persistence)
+        try {
+            plugin.onCGMRead(EversenseType.EVERSENSE_365, listOf(EversenseCGMResult(123, 1_800_000_000_000L, EversenseTrendArrow.FLAT)))
+            assertThat(withTimeout(5_000) { received.receive() }.single().value).isEqualTo(123.0)
+            withTimeout(5_000) { cloudFailed.await() }
+            plugin.onCGMRead(EversenseType.EVERSENSE_365, listOf(EversenseCGMResult(124, 1_800_000_300_000L, EversenseTrendArrow.FLAT)))
+            assertThat(withTimeout(5_000) { received.receive() }.single().value).isEqualTo(124.0)
+            verify(backend, never()).forceReconnect()
+            verify(backend, never()).disconnect()
+        } finally { plugin.onStop() }
     }
 
 }

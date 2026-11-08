@@ -19,3 +19,15 @@ Every fresh GATT client receives a session identifier. State access and Android 
 Credential/region changes invalidate the old session and token cache before reconnecting. Sign-out also clears the typed AAPS credential preferences. Placement polling belongs to the resumed screen and leaves diagnostic mode during cancellation. Scans have a ten-second backend deadline and an owner-specific cancellation handle.
 
 Regression tests cover connection deadlines, backoff, stale callbacks, manual pause, 365 GATT reuse, stale state writes, early packet responses and placement cancellation. Physical transmitter and battery measurements remain necessary.
+
+## Optional hourly cloud delivery and offline operation
+
+Glucose is persisted to AAPS before optional cloud work is queued. BLE reception, calibration and local AAPS processing do not wait for uploads or cloud-token refreshes. A cloud failure does not request a BLE reconnect. In airplane mode Bluetooth must remain enabled; missing internet/validated connectivity skips cloud attempts.
+
+Cloud readings are deduplicated and buffered in the separate, non-exported `eversense_cloud_queue_json` preference. At most one upload cycle starts per hour, including failed attempts; the attempt timestamp survives process restarts. A cycle sends the accumulated readings to the existing model-specific endpoints and updates portal status with the newest reading. Successful batches are removed; failures remain pending. The next reading after connectivity returns can trigger a due cycle. There is no separate wake-up timer. The cloud buffer retains up to seven days / 2016 readings; this does not limit AAPS glucose history. Sign-out or account/region changes clear pending cloud batches. 365 history entries without raw BLE payload stay in AAPS but cannot be sent through the existing raw-data cloud endpoint.
+
+An already registered ES365 identity can establish a new BLE session using stored keys without cloud access, even when its cloud access token has expired. Offline connection/decryption failures retain that identity for another local handshake. Initial 365 registration, missing keys, or registration genuinely invalidated by the transmitter still require the manufacturer service; this protocol requirement cannot be replaced by the offline upload queue. Physical flight-mode/reconnect/loop tests remain necessary.
+
+## Logging
+
+The Eversense settings provide a separate **Diagnostic logging** switch, off by default and excluded from settings exports/imports. It changes immediately while the source is active. Normal logging keeps important connection, calibration, alarm, HTTP status and error events. Packet dumps, individual readings, full state dumps, detailed sync traces, HTTP response bodies and exception stack traces require diagnostic logging. Disabled diagnostic messages are formatted lazily; the logger no longer allocates a stack trace for each log line. The setting does not enable the transmitter placement/diagnostic mode. Symmetric session keys are never logged, including in diagnostic mode. Existing log archives are unchanged.

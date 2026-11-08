@@ -137,7 +137,7 @@ class EversenseHttpE3Util {
                     EversenseLogger.error(TAG, "E3 PutCurrentValues failed � status: $code")
                     false
                 } else {
-                    EversenseLogger.info(TAG, "E3 PutCurrentValues ok � status: $code, glucose=$glucose")
+                    EversenseLogger.debug(TAG) { "E3 PutCurrentValues ok � status: $code, glucose=$glucose" }
                     true
                 }
             } catch (e: Exception) {
@@ -170,7 +170,7 @@ class EversenseHttpE3Util {
                 val patientBytes = EversenseDmsBinaryCodec.buildEmptyPatientBytes()
                 val alertBytes  = EversenseDmsBinaryCodec.buildAlertBytes(sensorId, alerts, readings.lastOrNull()?.datetime ?: System.currentTimeMillis(), readings.lastOrNull()?.glucoseInMgDl ?: 0)
 
-                EversenseLogger.info(TAG, "E3 PutDeviceEvents: ${readings.size} reading(s), txId='$transmitterSerialNumber'")
+                EversenseLogger.debug(TAG) { "E3 PutDeviceEvents: ${readings.size} reading(s), txId='$transmitterSerialNumber'" }
 
                 val body = """{"deviceType":"SMSIMeter","deviceName":"Smart Transmitter (Android)","deviceID":"$transmitterSerialNumber","offsetBytes":"$offsetBytes","sgBytes":"$sgBytes","mgBytes":"$mgBytes","patientBytes":"$patientBytes","alertBytes":"$alertBytes","algorithmVersion":"10"}"""
 
