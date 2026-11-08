@@ -9,7 +9,6 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.widget.Toolbar
 import app.aaps.core.interfaces.profile.ProfileUtil
 import app.aaps.core.keys.LongNonKey
 import app.aaps.core.keys.interfaces.Preferences
@@ -49,10 +48,7 @@ class EversenseCalibrationActivity : MetroAppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_eversense_calibration)
 
-        val toolbar = findViewById<Toolbar>(R.id.toolbar)
-        setSupportActionBar(toolbar)
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.title = getString(R.string.eversense_calibration_action)
+        configureEversenseNavigation(R.string.eversense_calibration_action)
 
         EversenseLogger.info(TAG, "Activity opened — connected: ${eversenseCGM.isConnected()}")
 

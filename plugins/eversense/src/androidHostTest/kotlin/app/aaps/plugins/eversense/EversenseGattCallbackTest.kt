@@ -58,6 +58,27 @@ class EversenseGattCallbackTest {
         }
         verify(plugin).sessionDisconnected(1, -1, false)
     }
+    @Test fun rejected365CommandDoesNotInvalidateAuthenticatedLink() {
+        val crypto: app.aaps.plugins.eversense.util.EversenseCrypto365Util = mock()
+        whenever(crypto.encrypt(any())).thenReturn(byteArrayOf(3, 14))
+        whenever(crypto.decrypt(any())).thenReturn(byteArrayOf(0xff.toByte(), 0x0e, 5))
+        EversenseGattCallback::class.java.getDeclaredField("cryptoUtil").apply { isAccessible = true; set(callback, crypto) }
+        EversenseGattCallback::class.java.getDeclaredField("security").apply {
+            isAccessible = true
+            set(callback, app.aaps.plugins.eversense.enums.EversenseSecurityType.SecureV2)
+        }
+        whenever(gatt.writeCharacteristic(characteristic)).thenAnswer {
+            callback.onCharacteristicChanged(gatt, characteristic, byteArrayOf(1, 1, 1, 0x42, 1))
+            true
+        }
+        val error = assertThrows(EversenseWriteException::class.java) {
+            callback.writePacket<app.aaps.plugins.eversense.packets.e365.SetAppVersion365Packet.Response>(
+                app.aaps.plugins.eversense.packets.e365.SetAppVersion365Packet(), 100)
+        }
+        assertEquals("Transmitter rejected the packet", error.message)
+        verify(plugin, never()).sessionDisconnected(any(), any(), any())
+    }
+
     @Test fun closedSessionCannotSendAnotherPacket() {
         callback.closeSession()
         assertThrows(EversenseWriteException::class.java) {

@@ -56,10 +56,7 @@ class EversensePlacementActivity : MetroAppCompatActivity(), EversenseWatcher {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_eversense_placement)
 
-        supportActionBar?.apply {
-            title = getString(R.string.eversense_placement_title)
-            setDisplayHomeAsUpEnabled(true)
-        }
+        configureEversenseNavigation(R.string.eversense_placement_title)
 
         bar1 = findViewById(R.id.signal_bar_1)
         bar2 = findViewById(R.id.signal_bar_2)
