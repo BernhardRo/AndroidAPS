@@ -9,3 +9,13 @@ CAPTCG limits remain: E3 has no history backfill. Initial sensor setup and alarm
 The port keeps the CAPTCG credential keys. The legacy `EversenseCGMManager` state is imported once into the registered, non-exported `eversense_device_state_json` preference in AAPS 4 storage; settings import preserves it. The old file is kept. Cloud upload keeps its original enabled default. BLE and cloud support are Android only; shared screens hide the calibration action when no Eversense source is active.
 
 Builds and local tests do not verify a physical transmitter. E3/365 connection, reconnect, calibration, placement and cloud behavior still need device checks.
+
+## Connection lifecycle
+
+`EversenseConnectionController` owns connection intent, one retry timer, a three-minute connection/authentication deadline and a seven-minute data watchdog. Retries back off from five to sixty seconds; E3 status 19 waits thirty seconds. Normal 365 status-19 reconnects reuse the GATT handle. A manual disconnect remains paused until an explicit connect; stopping the source closes GATT, cancels timers, stops scanning and shuts down both executors.
+
+Every fresh GATT client receives a session identifier. State access and Android callbacks are guarded by that session. A separate link generation rejects queued work and HTTP results from an interrupted 365 link even when its GATT handle is reused. Packet completion is registered before sending; a timeout closes the link before another command can consume a late response. BLE writes share one executor and a packet exchange lock.
+
+Credential/region changes invalidate the old session and token cache before reconnecting. Sign-out also clears the typed AAPS credential preferences. Placement polling belongs to the resumed screen and leaves diagnostic mode during cancellation. Scans have a ten-second backend deadline and an owner-specific cancellation handle.
+
+Regression tests cover connection deadlines, backoff, stale callbacks, manual pause, 365 GATT reuse, stale state writes, early packet responses and placement cancellation. Physical transmitter and battery measurements remain necessary.

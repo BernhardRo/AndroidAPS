@@ -100,4 +100,25 @@ class EversensePluginTest {
         verify(preferences, never()).put(eq(EversenseRuntimeKey.DeviceState), any<String>())
     }
 
+    @Test fun signingOutClearsTypedCredentialsAndStopsBackendSession() {
+        val preferences: Preferences = mock()
+        val backend: EversenseCGMPlugin = mock()
+        val plugin = EversensePlugin(mock(), mock(), mock(), preferences, mock(), mock(), { backend }, mock())
+        val action = plugin.getPreferenceScreenContent().items
+            .filterIsInstance<app.aaps.core.keys.interfaces.IntentPreferenceKey>()
+            .single { it.key == EversenseIntentKey.EversenseSignOut.key }
+        action.onClick?.invoke()
+        verify(preferences).put(CredentialsKey.EversenseUsername, "")
+        verify(preferences).put(CredentialsKey.EversensePassword, "")
+        verify(backend).clearCredentials()
+    }
+
+    @Test fun stoppingSourceAlsoStopsBackendAndRemovesWatcher() = runBlocking {
+        val backend: EversenseCGMPlugin = mock()
+        val plugin = EversensePlugin(mock(), mock(), mock(), mock(), mock(), mock(), { backend }, mock())
+        plugin.onStop()
+        verify(backend).removeWatcher(plugin)
+        verify(backend).stop()
+    }
+
 }

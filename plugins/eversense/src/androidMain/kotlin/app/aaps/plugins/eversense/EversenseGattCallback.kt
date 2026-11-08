@@ -34,12 +34,35 @@ import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.jvm.Throws
+import app.aaps.plugins.eversense.connection.SessionStore
+import app.aaps.plugins.eversense.connection.PacketExchange
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Future
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
-class EversenseGattCallback(
+class EversenseGattCallback internal constructor(
     private val plugin: EversenseCGMPlugin,
-    private val preferences: EversenseStore
+    private val sessionStore: SessionStore,
+    internal val session: Long
 ) : BluetoothGattCallback() {
+
+    @Volatile private var closed = false
+    private val writeLock = ReentrantLock()
+    @Volatile private var linkGeneration = 0L
+    private val workGeneration = ThreadLocal<Long>()
+    internal val stateStore get() = sessionStore.restrict {
+        workGeneration.get()?.let { it == linkGeneration } ?: true
+    }
+    private val preferences get() = stateStore
+    internal fun operationStore(): EversenseStore {
+        val generation = linkGeneration
+        return sessionStore.restrict { generation == linkGeneration }
+    }
+    private fun active() = !closed && plugin.sessionActive(session) &&
+        (workGeneration.get()?.let { it == linkGeneration } ?: true)
+    private fun accepts(gatt: BluetoothGatt?) = active() && gatt != null && (bluetoothGatt == null || bluetoothGatt === gatt)
 
     companion object {
         private const val TAG = "EversenseGattCallback"
@@ -59,29 +82,6 @@ class EversenseGattCallback(
         // data. Real traffic never repeats byte for byte this quickly - each message carries its
         // own encryption counter - so the window can be short.
         private const val DUPLICATE_CHUNK_WINDOW_MS = 1000L
-        private const val CALIBRATION_TIMEOUT_MS = 15000L
-
-        // Number of consecutive authV2flow failures before abandoning the shortcut path
-        // and forcing a full re-auth (WhoAmI + fleet certificate). This handles the case
-        // where the BLE stack resets (e.g. charger plug-in) and the session key is lost.
-        // A value of 3 lets transient glitches (dropped BLE writes) retry the shortcut without
-        // internet, and avoids forcing a network re-auth too eagerly during flaky BLE.
-        // A definitive stale-session signal (a decrypt/MAC failure) still forces full re-auth
-        // immediately via disallowUseShortcut(), without waiting for this threshold at all.
-        private const val SHORTCUT_FAIL_THRESHOLD = 3
-
-        // Number of consecutive full-auth (WhoAmI + DMS login + fleet cert) failures before
-        // falling back to trying the shortcut again. Once disallowUseShortcut() fires, every
-        // future connect requires internet (DMS login) - if DMS itself is unreachable (observed
-        // in the wild: repeated SocketTimeoutException) or a BLE write in this longer sequence
-        // times out (more legs = more chances to hit a transient signal issue), there was
-        // previously no way back: the app would retry the same DMS-dependent path forever even
-        // though the original shortcut credentials were never actually proven invalid - only
-        // ever loosely inferred from a failure that could just as easily have been a transient
-        // range/signal issue. Re-enabling the shortcut after sustained full-auth failure lets the
-        // two strategies oscillate rather than deadlock on whichever one happened to be active
-        // when an unrelated outage (network or BLE) hit.
-        private const val FULL_AUTH_FAIL_THRESHOLD = 3
     }
 
     // FIX 1: Dedicated BLE executor for callbacks; separate network executor for HTTP calls
@@ -90,7 +90,7 @@ class EversenseGattCallback(
     private var networkExecutor = Executors.newSingleThreadExecutor()
 
     private val handler = Handler(Looper.getMainLooper())
-    private var bluetoothGatt: BluetoothGatt? = null
+    @Volatile private var bluetoothGatt: BluetoothGatt? = null
     private var eversenseBluetoothService: BluetoothGattService? = null
     private var requestCharacteristic: BluetoothGattCharacteristic? = null
     private var responseCharacteristic: BluetoothGattCharacteristic? = null
@@ -114,74 +114,13 @@ class EversenseGattCallback(
     private var lastChunk: ByteArray? = null
     private var lastChunkAt: Long = 0L
 
-    // FIX 2: Use AtomicReference for currentPacket to avoid the race condition where a stale
-    // BLE notification could be processed against the wrong packet between assignment and write.
-    var currentPacket: AtomicReference<EversenseBasePacket?> = AtomicReference(null)
+    private val currentExchange = AtomicReference<PacketExchange<EversenseBasePacket>?>(null)
 
     // FIX 3: Track connection state with a dedicated flag rather than relying on bluetoothGatt
     // being non-null, which is not a reliable indicator of actual connection state.
     @Volatile
     private var connected: Boolean = false
-    private var transmitterReady: Boolean = false
-
-    // Set for the duration of cleanUp() so any write already blocked in packet.wait() (or one
-    // that starts concurrently, e.g. from setDiagnosticMode()/readSignalStrength() before those
-    // were routed through bleExecutor) can recognize it's racing a teardown and fail cleanly,
-    // instead of falling through to parseResponse() on a packet that never got a real response.
-    // Mirrors EversenseKit's isCleaningUp guard in PeripheralManager.swift (loopandlearn's
-    // reference implementation) - adapted for this class being a long-lived, reused object
-    // rather than one discarded per connection, so it's reset at the end of cleanUp() instead
-    // of being a one-way flag.
-    @Volatile
-    private var isCleaningUp: Boolean = false
-
-    // Tracks consecutive status-19 failures to detect transmitter placement issues
-    @Volatile
-    private var failedConnectionAttempts: Int = 0
-    private val PLACEMENT_WARNING_THRESHOLD = 3
-
-    // Tracks consecutive general reconnect attempts (reset on successful connection).
-    // Used to compute exponential backoff so AAPS retries quickly after boot (when the
-    // official Eversense app temporarily holds the BLE connection) and backs off for
-    // sustained failures to avoid draining the battery.
-    @Volatile
-    private var reconnectAttempts: Int = 0
-
-    // Persistent reconnect: retries every 60s indefinitely while disconnected.
-    // Android autoConnect gives up silently after ~30 min on Samsung devices.
-    private val persistentReconnectRunnable = object : Runnable {
-        override fun run() {
-            if (!connected) {
-                EversenseLogger.info(TAG, "Persistent reconnect tick — still disconnected, retrying...")
-                plugin.connect(null)
-                handler.postDelayed(this, 60_000L)
-            }
-        }
-    }
-
-    // Single reusable backoff-reconnect runnable. scheduleReconnect() cancels any pending
-    // instance before posting a new one, so only ONE backoff reconnect is ever queued at a
-    // time. Previously this was an anonymous lambda posted per call, which could not be
-    // cancelled - so every disconnect callback stacked another timer, and several firing at
-    // once opened multiple GATT clients to one transmitter (the connection storm seen after a
-    // phone reboot). reconnectAttempts is read at run time on purpose, so the log line and the
-    // plugin's own attempt counter stay in step with the latest schedule.
-    private val backoffReconnectRunnable = Runnable {
-        EversenseLogger.info(TAG, "Attempting auto-reconnect (attempt $reconnectAttempts)...")
-        plugin.connect(null)
-    }
-
-    // FIX 12: Tracks consecutive authV2flow failures while using the shortcut path.
-    // After SHORTCUT_FAIL_THRESHOLD failures, disallowUseShortcut() is called to force
-    // a full re-auth on the next connection. This handles BLE stack resets (e.g. charger
-    // plug-in) that invalidate the session key without needing internet on every reconnect.
-    @Volatile
-    private var shortcutFailCount: Int = 0
-
-    // Tracks consecutive authV2flow failures while shortcut is disallowed (i.e. every attempt
-    // requires a full WhoAmI + DMS login + fleet cert handshake). See FULL_AUTH_FAIL_THRESHOLD.
-    @Volatile
-    private var fullAuthFailCount: Int = 0
+    @Volatile private var transmitterReady: Boolean = false
 
     fun isConnected(): Boolean = connected && transmitterReady
     fun isBleConnected(): Boolean = connected
@@ -190,64 +129,57 @@ class EversenseGattCallback(
     // Submit a task to the bleExecutor and return a Future so callers can block until complete.
     // This ensures calibration and other ad-hoc BLE operations are serialised with Keep Alive
     // cycles and do not race with currentPacket assignment.
-    fun <R> submitToExecutor(task: () -> R): java.util.concurrent.Future<R> =
-        bleExecutor.submit(task)
-
-    // FIX 4: Added disconnect() which calls both disconnect() and close() on the GATT client.
-    // Calling only disconnect() without close() leaks the underlying GATT client resource.
-    @SuppressLint("MissingPermission")
-    fun disconnect() {
-        bluetoothGatt?.disconnect()
-        bluetoothGatt?.close()
-        bluetoothGatt = null
-        connected = false
-        transmitterReady = false
-        EversenseLogger.info(TAG, "GATT disconnected and closed")
-    }
-
-    // disconnect() alone does NOT reliably re-trigger onConnectionStateChange(): calling
-    // bluetoothGatt.close() while its own async disconnect() is still in flight can suppress
-    // that callback from ever arriving, and all reconnect scheduling (backoff, persistent
-    // retry loop) lives inside that callback's disconnect branch. Left unrecovered, this
-    // silently strands the connection until the user notices and manually reconnects -
-    // observed in the wild via fullSync()'s own failure handler (see Eversense365Communicator).
-    // Use this instead of plain disconnect() whenever OUR code (not the Android BLE stack) is
-    // the one initiating the disconnect, so a reconnect is scheduled regardless of whether the
-    // callback fires. Treated as a clean, self-initiated disconnect (GATT_SUCCESS) for a fast
-    // 5s retry rather than backoff, since it isn't a real BLE-level failure.
-    @SuppressLint("MissingPermission")
-    fun disconnectAndScheduleReconnect() {
-        disconnect()
-        handler.post {
-            plugin.watchers.forEach { it.onConnectionChanged(false) }
+    fun <R> submitToExecutor(readyOnly: Boolean = false, task: () -> R): Future<R> {
+        val generation = linkGeneration
+        return try { bleExecutor.submit<R> {
+            workGeneration.set(generation)
+            try {
+                check(active() && (!readyOnly || isConnected())) { "Eversense session is not ready" }
+                task()
+            } finally { workGeneration.remove() }
+        } } catch (e: java.util.concurrent.RejectedExecutionException) {
+            java.util.concurrent.CompletableFuture.failedFuture(e)
         }
-        scheduleReconnect(BluetoothGatt.GATT_SUCCESS)
+    }
+
+    fun hasGatt() = bluetoothGatt != null
+
+    @SuppressLint("MissingPermission")
+    fun reuse(): Boolean {
+        if (!active()) return false
+        chunkAccumulator = ByteArray(0)
+        chunkNextIndex = 1
+        lastChunk = null
+        return bluetoothGatt?.connect() == true
     }
 
     @SuppressLint("MissingPermission")
-    fun cleanUp() {
-        isCleaningUp = true
-        bluetoothGatt?.disconnect()
-        bluetoothGatt?.close()
-        bluetoothGatt = null
+    fun closeSession() {
+        closed = true
         connected = false
         transmitterReady = false
-        bleExecutor.shutdownNow()
-        bleExecutor = Executors.newSingleThreadExecutor()
-        isCleaningUp = false
-        EversenseLogger.info(TAG, "GATT cleaned up before reconnect")
+        handler.removeCallbacksAndMessages(null)
+        currentExchange.getAndSet(null)?.fail(EversenseWriteException("Session closed"))
+        val old = bluetoothGatt
+        bluetoothGatt = null
+        try {
+            try { old?.disconnect() } catch (_: SecurityException) { }
+            try { old?.close() } catch (_: SecurityException) { }
+        } finally {
+            bleExecutor.shutdownNow().forEach { (it as? Future<*>)?.cancel(false) }
+            networkExecutor.shutdownNow().forEach { (it as? Future<*>)?.cancel(false) }
+        }
     }
 
-    /**
-     * Takes ownership of a GATT handle the moment it is created. [cleanUp] can only close the
-     * handle captured in [onConnectionStateChange], so a connectGatt() that never reached
-     * STATE_CONNECTED used to stay open, unreferenced, and keep delivering every notification a
-     * second time for as long as the app ran. Recording it here means the next [cleanUp] can
-     * always close it.
-     */
+    fun disconnectAndScheduleReconnect() {
+        if (active()) plugin.sessionDisconnected(session, BluetoothGatt.GATT_SUCCESS)
+    }
+
+    /** Owns even a GATT handle which never reaches STATE_CONNECTED. */
     @SuppressLint("MissingPermission")
     fun attachGatt(gatt: BluetoothGatt?) {
         if (gatt == null) return
+        if (!active()) { gatt.close(); return }
         bluetoothGatt?.takeIf { it !== gatt }?.let {
             EversenseLogger.info(TAG, "Closing an earlier GATT handle before using the new one")
             it.disconnect()
@@ -261,27 +193,29 @@ class EversenseGattCallback(
     }
 
     @SuppressLint("MissingPermission")
-    override fun onReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
+    override fun onReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) = plugin.deliver(session) { handleOnReadRemoteRssi(gatt, rssi, status) }
+
+    private fun handleOnReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
+        if (!accepts(gatt)) return
         if (status == BluetoothGatt.GATT_SUCCESS) {
             EversenseLogger.debug(TAG, "RSSI: $rssi dBm")
-            plugin.onRssiRead(rssi)
+            plugin.onRssiRead(rssi, session)
         } else {
             EversenseLogger.warning(TAG, "Failed to read RSSI - status: $status")
         }
     }
 
     @SuppressLint("MissingPermission")
-    override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+    override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) = plugin.deliver(session) { handleOnConnectionStateChange(gatt, status, newState) }
+
+    private fun handleOnConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+        if (!accepts(gatt)) return
         EversenseLogger.info(TAG, "Connection state changed - status: $status, newState: $newState, device: ${gatt.device.name}")
 
         if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
             bluetoothGatt = gatt
             // FIX 3: Set connected flag on confirmed STATE_CONNECTED.
             connected = true
-            // Reset backoff counters on successful connection
-            reconnectAttempts = 0
-            failedConnectionAttempts = 0
-            handler.removeCallbacks(persistentReconnectRunnable)
 
             preferences.edit(commit = true) {
                 putString(StorageKeys.REMOTE_DEVICE_KEY, gatt.device.address)
@@ -290,7 +224,7 @@ class EversenseGattCallback(
             // FIX 5: Both connect and disconnect watcher notifications are now dispatched via
             // handler.post() so they always arrive on the main thread, preventing UI thread crashes.
             handler.post {
-                plugin.watchers.forEach { it.onConnectionChanged(true) }
+                plugin.watchersFor(this.session).forEach { it.onConnectionChanged(true) }
             }
 
             if (!gatt.requestMtu(512)) {
@@ -304,92 +238,25 @@ class EversenseGattCallback(
         if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
             EversenseLogger.warning(TAG, "Disconnected or failed - status: $status, newState: $newState")
 
-            // FIX 11: For E365 normal post-sync disconnect (status 19), reuse the existing
-            // GATT object and call gatt.connect() directly — exactly as the official app does.
-            // This preserves the BLE bond and session key so the shortcut auth path works
-            // without needing internet. For all other disconnects, close and reconnect fresh.
-            if (status == 19 && is365()) {
-                connected = false
-                transmitterReady = false
-                handler.post {
-                    plugin.watchers.forEach { it.onConnectionChanged(false) }
-                }
-                EversenseLogger.debug(TAG, "365 post-sync disconnect (status 19) — reusing GATT for reconnect")
-                // This reuse is itself a fresh connect attempt (it bypasses plugin.connect()),
-                // so mark the in-progress window - otherwise a stacked plugin.connect() could
-                // cleanUp() this reused GATT mid-flight.
-                plugin.onConnectAttemptStarted()
-                gatt.connect()
-                return
-            }
-
-            gatt.close()
-            bluetoothGatt = null
             connected = false
             transmitterReady = false
-            // This attempt has terminated; let the scheduled backoff reconnect proceed.
-            plugin.onConnectAttemptFinished()
+            linkGeneration++
+            currentExchange.getAndSet(null)?.fail(EversenseWriteException("Link interrupted"))
+            // The controller owns retries. A normal 365 cycle keeps its GATT/bond.
+            val reuse = status == 19 && is365()
+            plugin.sessionDisconnected(session, status, reuse)
+            handler.post { plugin.watchersFor(this.session).forEach { it.onConnectionChanged(false) } }
 
-            handler.post {
-                plugin.watchers.forEach { it.onConnectionChanged(false) }
-            }
+            plugin.placementChanged(session, status, is365())
 
-            if (status == 19) {
-                // E3 only — E365 status 19 is handled above
-                failedConnectionAttempts++
-                EversenseLogger.warning(TAG, "Connection terminated by transmitter (status 19) — attempt $failedConnectionAttempts")
-                if (failedConnectionAttempts >= PLACEMENT_WARNING_THRESHOLD) {
-                    handler.post { plugin.watchers.forEach { it.onTransmitterNotPlaced() } }
-                }
-            } else {
-                failedConnectionAttempts = 0
-            }
-
-            scheduleReconnect(status)
         }
-    }
-
-    // Extracted from onConnectionStateChange's disconnect branch so disconnectAndScheduleReconnect()
-    // can trigger the identical reconnect scheduling without depending on onConnectionStateChange()
-    // firing - see that method's doc comment for why that firing isn't reliable after our own close().
-    private fun scheduleReconnect(status: Int) {
-        val storedAddress = preferences.getString(StorageKeys.REMOTE_DEVICE_KEY, null)
-        if (storedAddress == null) {
-            EversenseLogger.warning(TAG, "No stored device address — skipping auto-reconnect")
-            return
-        }
-        // Exponential backoff so AAPS reclaims the transmitter quickly after boot
-        // (when the official Eversense app temporarily holds the BLE connection)
-        // and avoids battery drain during sustained unavailability.
-        //
-        // Status 19 = transmitter actively rejected us (placement issue, not competition) —
-        // use a fixed 30 s interval so we don't spam it.
-        // Status GATT_SUCCESS = clean disconnect (we or the transmitter closed cleanly) —
-        // reconnect quickly in 5 s.
-        // All other status codes (e.g. 133 = GATT_ERROR, device busy) = backoff:
-        //   attempt 0 → 5 s, attempt 1 → 10 s, attempt 2 → 20 s, attempt 3 → 40 s,
-        //   attempt 4+ → 60 s cap.
-        val delayMs: Long = when {
-            status == 19 -> 30_000L
-            status == BluetoothGatt.GATT_SUCCESS -> 5_000L
-            else -> {
-                val attempt = reconnectAttempts++
-                minOf(5_000L * (1L shl minOf(attempt, 4)), 60_000L)
-            }
-        }
-        EversenseLogger.info(TAG, "Scheduling auto-reconnect in ${delayMs / 1000}s (status: $status, attempt: $reconnectAttempts)")
-        // Collapse stacked timers into one: cancel any pending backoff reconnect before
-        // scheduling the next, so multiple disconnect callbacks can't pile up several
-        // concurrent connect() calls (each of which would open its own GATT client).
-        handler.removeCallbacks(backoffReconnectRunnable)
-        handler.postDelayed(backoffReconnectRunnable, delayMs)
-        // Also start persistent 60s retry loop in case autoConnect gives up
-        handler.removeCallbacks(persistentReconnectRunnable)
-        handler.postDelayed(persistentReconnectRunnable, 60_000L)
     }
 
     @SuppressLint("MissingPermission")
-    override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
+    override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) = plugin.deliver(session) { handleOnMtuChanged(gatt, mtu, status) }
+
+    private fun handleOnMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
+        if (!accepts(gatt)) return
         if (status != 0) {
             EversenseLogger.warning(TAG, "MTU negotiation failed (status: $status) — using default payload size of 20")
             payloadSize = 20
@@ -403,7 +270,10 @@ class EversenseGattCallback(
     }
 
     @SuppressLint("MissingPermission")
-    override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
+    override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) = plugin.deliver(session) { handleOnServicesDiscovered(gatt, status) }
+
+    private fun handleOnServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
+        if (!accepts(gatt)) return
         EversenseLogger.info(TAG, "Discovered services - status: $status")
 
         if (gatt == null) {
@@ -460,14 +330,17 @@ class EversenseGattCallback(
         enableNotify(gatt, responseChar)
     }
 
-    override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+    override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) = plugin.deliver(session) { handleOnDescriptorWrite(gatt, descriptor, status) }
+
+    private fun handleOnDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+        if (!accepts(gatt)) return
         EversenseLogger.debug(TAG, "onDescriptorWrite (${descriptor.uuid}) for characteristic (${descriptor.characteristic.uuid}) - status $status")
 
         if (status == BluetoothGatt.GATT_SUCCESS && descriptor.uuid.toString() == magicDescriptorUUID) {
             if (descriptor.characteristic.uuid.toString() == responseUUID) {
-                bleExecutor.submit { authE3flow() }
+                submitToExecutor { authE3flow() }
             } else if (descriptor.characteristic.uuid.toString() == responseSecureV2UUID) {
-                bleExecutor.submit { authV2flow() }
+                submitToExecutor { authV2flow() }
             }
         }
     }
@@ -482,7 +355,14 @@ class EversenseGattCallback(
         gatt: BluetoothGatt,
         characteristic: BluetoothGattCharacteristic,
         value: ByteArray
+    ) = plugin.deliver(session) { handleOnCharacteristicChanged(gatt, characteristic, value) }
+
+    private fun handleOnCharacteristicChanged(
+        gatt: BluetoothGatt,
+        characteristic: BluetoothGattCharacteristic,
+        value: ByteArray
     ) {
+        if (!accepts(gatt)) return
         handleCharacteristicChanged(gatt, value)
     }
 
@@ -490,7 +370,10 @@ class EversenseGattCallback(
     @SuppressLint("MissingPermission")
     @OptIn(ExperimentalStdlibApi::class)
     @Suppress("DEPRECATION")
-    override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+    override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) = plugin.deliver(session) { handleOnCharacteristicChanged(gatt, characteristic) }
+
+    private fun handleOnCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+        if (!accepts(gatt)) return
         handleCharacteristicChanged(gatt, characteristic.value)
     }
 
@@ -552,8 +435,10 @@ class EversenseGattCallback(
     @SuppressLint("MissingPermission")
     @OptIn(ExperimentalStdlibApi::class)
     private fun handleCharacteristicChanged(gatt: BluetoothGatt, rawData: ByteArray) {
+        if (!accepts(gatt)) return
         EversenseLogger.debug(TAG, "Received data: ${rawData.toHexString()}")
 
+        if (rawData.isEmpty()) return
         var data = rawData
         if (security == EversenseSecurityType.SecureV2) {
             data = accumulateChunk(rawData) ?: return
@@ -576,7 +461,7 @@ class EversenseGattCallback(
 
         if (!is365() && EversenseE3Packets.isPushPacket(data[0])) {
             EversenseLogger.debug(TAG, "Keep Alive packet received (E3)!")
-            bleExecutor.submit {
+            submitToExecutor {
                 // Sync transmitter clock before reading glucose so the glucose timestamp
                 // reflects phone time, not the drifted transmitter clock. The official app
                 // always calls postCurrentDateTimeRequest before postReadSensorGlucose.
@@ -593,13 +478,13 @@ class EversenseGattCallback(
                 } catch (e: Exception) {
                     EversenseLogger.warning(TAG, "Pre-glucose clock sync failed (non-fatal): $e")
                 }
-                EversenseE3Communicator.readGlucose(this, preferences, plugin.watchers)
-                EversenseE3Communicator.fullSync(this, preferences, plugin.watchers)
+                EversenseE3Communicator.readGlucose(this, preferences, plugin.watchersFor(this.session))
+                EversenseE3Communicator.fullSync(this, preferences, plugin.watchersFor(this.session))
             }
             return
         }
 
-        if (Eversense365Packets.isKeepAlivePacket(data[0], data[1])) {
+        if (data.size >= 2 && Eversense365Packets.isKeepAlivePacket(data[0], data[1])) {
             EversenseLogger.debug(TAG, "Keep Alive packet received (365)!")
 
             val packet = KeepAlivePacket()
@@ -607,10 +492,10 @@ class EversenseGattCallback(
             val response = packet.parseResponse() ?: return
 
             val fourHalfMinAgo = System.currentTimeMillis() - TimeUnit.SECONDS.toMillis(270)
-            bleExecutor.submit {
+            submitToExecutor {
                 if (response.glucoseDatetime > fourHalfMinAgo) {
-                    Eversense365Communicator.readGlucose(this, preferences, plugin.watchers)
-                    Eversense365Communicator.fullSync(this, preferences, plugin.watchers)
+                    Eversense365Communicator.readGlucose(this, preferences, plugin.watchersFor(this.session))
+                    Eversense365Communicator.fullSync(this, preferences, plugin.watchersFor(this.session))
                 }
             }
             return
@@ -632,7 +517,7 @@ class EversenseGattCallback(
             }
             EversenseLogger.info(TAG, "Push alarm received: ${response.alarm.code.title}")
             handler.post {
-                plugin.watchers.forEach { it.onAlarmReceived(response.alarm) }
+                plugin.watchersFor(this.session).forEach { it.onAlarmReceived(response.alarm) }
             }
             return
         } else if (Eversense365Packets.isNotificationPacket(data[0])) {
@@ -640,11 +525,12 @@ class EversenseGattCallback(
             return
         }
 
-        val packet = currentPacket.get() ?: run {
+        val exchange = currentExchange.get() ?: run {
             EversenseLogger.warning(TAG, "currentPacket is null -> skipping packet")
             return
         }
 
+        val packet = exchange.packet
         synchronized(packet) {
             val packetAnnotation = packet.getAnnotation() ?: run {
                 EversenseLogger.warning(TAG, "annotation is null -> skipping packet")
@@ -658,7 +544,7 @@ class EversenseGattCallback(
             if (EversenseE3Packets.isErrorPacket(data[0]) && packetAnnotation.responseId != data[0]) {
                 EversenseLogger.error(TAG, "Received error response - data: ${data.toHexString()}")
                 packet.isErrorResponse = true
-                packet.notifyAll()
+                exchange.complete()
                 return
             }
 
@@ -668,85 +554,58 @@ class EversenseGattCallback(
                     return
                 }
                 packet.appendData(data.toUByteArray())
-                packet.notifyAll()
+                exchange.complete()
             } else {
                 if (packetAnnotation.responseId != data[0]) {
                     EversenseLogger.warning(TAG, "Incorrect responseId - expected: ${packetAnnotation.responseId}, got: ${data[0]}")
                     return
                 }
-                if (packetAnnotation.typeId != data[1]) {
-                    EversenseLogger.warning(TAG, "Incorrect responseType - expected: ${packetAnnotation.typeId}, got: ${data[1]}")
+                if (data.size < 2 || packetAnnotation.typeId != data[1]) {
+                    EversenseLogger.warning(TAG, "Incorrect responseType - expected: ${packetAnnotation.typeId}, got: ${data.getOrNull(1)}")
                     return
                 }
                 packet.appendData(data.toUByteArray())
-                packet.notifyAll()
+                exchange.complete()
             }
         }
     }
 
-    @Suppress("UNCHECKED_CAST")
+    @Suppress("UNCHECKED_CAST", "DEPRECATION")
     @SuppressLint("MissingPermission")
-    @OptIn(ExperimentalStdlibApi::class)
-    @Throws(EversenseWriteException::class)
-    fun <T : EversenseBasePacket.Response> writePacket(packet: EversenseBasePacket, timeoutMs: Long = WRITE_TIMEOUT_MS): T {
-        if (isCleaningUp) throw EversenseWriteException("GATT is being cleaned up — write rejected")
-
-        val gatt = bluetoothGatt ?: throw EversenseWriteException("Gatt is null — not connected")
-
-        val requestCharacteristic = requestCharacteristic
-            ?: throw EversenseWriteException("requestCharacteristic is null")
-
-        val requestData = packet.buildRequest(cryptoUtil, payloadSize)
-            ?: throw EversenseWriteException("Failed to build request data")
-
-        // FIX 2: Use AtomicReference.set() for thread-safe assignment of currentPacket.
-        currentPacket.set(packet)
-
-        EversenseLogger.debug(TAG, "Writing data: ${requestData.toHexString()}")
-        @Suppress("DEPRECATION")
-        requestCharacteristic.setValue(requestData)
-        @Suppress("DEPRECATION")
-        gatt.writeCharacteristic(requestCharacteristic)
-
-        synchronized(packet) {
-            try {
-                // FIX 8: Explicitly detect timeout by comparing elapsed time after wait() returns.
-                // Previously, a timeout would fall through to parseResponse() silently, likely
-                // producing a confusing cast exception rather than a clear timeout error.
-                val start = System.currentTimeMillis()
-                packet.wait(timeoutMs)
-                val elapsed = System.currentTimeMillis() - start
-                if (elapsed >= timeoutMs) {
-                    currentPacket.set(null)
-                    throw EversenseWriteException("Timed out waiting for response after ${timeoutMs}ms — packet: ${packet.getAnnotation()?.responseId}")
-                } else if (packet.isErrorResponse) {
-                    currentPacket.set(null)
-                    throw EversenseWriteException("Transmitter returned error response — packet: ${packet.getAnnotation()?.responseId}")
+    fun <T : EversenseBasePacket.Response> writePacket(packet: EversenseBasePacket, timeoutMs: Long = WRITE_TIMEOUT_MS): T = writeLock.withLock {
+        if (!active() || Thread.currentThread().isInterrupted) throw EversenseWriteException("Session closed")
+        val gatt = bluetoothGatt ?: throw EversenseWriteException("GATT is not connected")
+        val characteristic = requestCharacteristic ?: throw EversenseWriteException("Request characteristic is missing")
+        val request = packet.buildRequest(cryptoUtil, payloadSize) ?: throw EversenseWriteException("Cannot build packet")
+        val exchange = PacketExchange(packet)
+        try {
+            var accepted = false
+            // Register and send under the lifecycle lock: stop either rejects this send or
+            // observes its exchange and wakes the waiter. Never register after teardown.
+            plugin.deliver(session) {
+                if (active()) {
+                    currentExchange.set(exchange)
+                    characteristic.value = request
+                    accepted = gatt.writeCharacteristic(characteristic)
                 }
-            } catch (e: EversenseWriteException) {
-                throw e
-            } catch (e: InterruptedException) {
-                // Only happens when cleanUp()'s bleExecutor.shutdownNow() interrupts this wait
-                // mid-write - the GATT is already being torn down, so there's no response coming.
-                // Reject cleanly here instead of falling through to parseResponse() on a packet
-                // that was never actually populated.
-                currentPacket.set(null)
-                throw EversenseWriteException("Write interrupted — GATT is being cleaned up: $e")
-            } catch (e: Exception) {
-                EversenseLogger.error(TAG, "Exception during packet wait: $e")
-                e.printStackTrace()
             }
-        }
-
-        return try {
-            val response = packet.parseResponse()
-            currentPacket.set(null)
-            response as? T
-                ?: throw EversenseWriteException("Unable to cast response — packet: ${packet.getAnnotation()?.responseId}")
-        } catch (e: EversenseWriteException) {
-            throw e
-        } catch (e: Exception) {
-            throw EversenseWriteException("Failed to parse response: $e")
+            if (!accepted) throw EversenseWriteException("BLE write was rejected or session closed")
+            exchange.await(timeoutMs)
+            if (!active()) throw EversenseWriteException("Session ended during write")
+            if (packet.isErrorResponse) throw EversenseWriteException("Transmitter rejected the packet")
+            packet.parseResponse() as? T ?: throw EversenseWriteException("Invalid packet response")
+        } catch (e: TimeoutException) {
+            // Do not let a late reply be consumed by the next command on the same link.
+            if (active()) plugin.sessionDisconnected(session, -1)
+            throw EversenseWriteException("Packet response timed out after ${timeoutMs}ms")
+        } catch (e: InterruptedException) {
+            if (active()) plugin.sessionDisconnected(session, -1)
+            Thread.currentThread().interrupt()
+            throw EversenseWriteException("Packet write was interrupted")
+        } catch (e: ExecutionException) {
+            throw EversenseWriteException("Packet exchange ended: ${e.cause}")
+        } finally {
+            currentExchange.compareAndSet(exchange, null)
         }
     }
 
@@ -755,6 +614,7 @@ class EversenseGattCallback(
         try {
             writePacket<SaveBondingInformationPacket.SaveBondingInformationResponse>(SaveBondingInformationPacket())
         } catch (exception: Exception) {
+            if (!active()) return
             EversenseLogger.error(TAG, "Auth flow E3 failed: $exception")
             return
         }
@@ -762,15 +622,21 @@ class EversenseGattCallback(
         EversenseLogger.info(TAG, "E3 auth complete — notifying watchers")
         // fullSync is triggered by onConnectionChanged via triggerFullSync on the bleExecutor.
         // Do NOT call fullSync here — it would race with the triggerFullSync call.
+        if (!active()) return
         transmitterReady = true
-        handler.post { plugin.watchers.forEach { it.onTransmitterReady() } }
+        plugin.sessionReady(this.session)
+        handler.post { plugin.watchersFor(this.session).forEach { it.onTransmitterReady() } }
     }
 
     @SuppressLint("MissingPermission")
     private fun authV2flow() {
+        var shortcutAttempt = false
+        val generation = linkGeneration
+        val networkStore = stateStore.restrict { generation == linkGeneration }
         // FIX 9: Network calls (login, getFleetSecretV2) are dispatched to a separate networkExecutor
         // so they do not block the bleExecutor, which must remain available for BLE callbacks.
         try {
+            shortcutAttempt = cryptoUtil.canUseShortcut()
             if (!cryptoUtil.generateKeyPairIfNotExists()) {
                 bluetoothGatt?.disconnect()
                 return
@@ -780,21 +646,10 @@ class EversenseGattCallback(
                 val clientId = cryptoUtil.getClientId()
                 val whoAmI = writePacket<AuthWhoAmIPacket.Response>(AuthWhoAmIPacket(clientId))
 
-                // Dispatch HTTP work to the network executor and block bleExecutor until complete.
-                                // Sync credentials from AAPS layer into SECURE_STATE before login
-                // Guaranteed same-thread write immediately before network call
-                if (plugin.username.isNotEmpty() && plugin.password.isNotEmpty()) {
-                    val stateJson = preferences.getString(app.aaps.plugins.eversense.util.StorageKeys.SECURE_STATE, null) ?: "{}"
-                    val secState = kotlinx.serialization.json.Json.decodeFromString<app.aaps.plugins.eversense.models.EversenseSecureState>(stateJson)
-                    secState.username = plugin.username
-                    secState.password = plugin.password
-                    preferences.edit().putString(app.aaps.plugins.eversense.util.StorageKeys.SECURE_STATE,
-                        kotlinx.serialization.json.Json.encodeToString(app.aaps.plugins.eversense.models.EversenseSecureState.serializer(), secState)).apply()
-                    EversenseLogger.info(TAG, "[365] Credentials synced to SECURE_STATE before login")
-                }
-val authSession = networkExecutor.submit<Any?> {
-                    EversenseHttp365Util.login(preferences)
-                }.get() ?: run {
+                // HTTP results carry the same link generation as the authentication attempt.
+                val authSession = networkExecutor.submit<Any?> {
+                    EversenseHttp365Util.login(networkStore)
+                }.get(65, TimeUnit.SECONDS) ?: run {
                     bluetoothGatt?.disconnect()
                     return
                 }
@@ -811,14 +666,14 @@ val authSession = networkExecutor.submit<Any?> {
 
                 val fleet = networkExecutor.submit<Any?> {
                     EversenseHttp365Util.getFleetSecretV2(
-                        preferences = preferences,
+                        preferences = networkStore,
                         accessToken = authSession.access_token,
                         serialNumber = whoAmI.serialNumber,
                         nonce = whoAmI.nonce,
                         flags = whoAmI.flags,
                         publicKey = cryptoUtil.getClientPublicKey()
                     )
-                }.get() ?: run {
+                }.get(65, TimeUnit.SECONDS) ?: run {
                     bluetoothGatt?.disconnect()
                     return
                 }
@@ -844,64 +699,34 @@ val authSession = networkExecutor.submit<Any?> {
             val session = writePacket<AuthStartPacket.Response>(AuthStartPacket(cryptoUtil.getStartSecret(signature)))
             cryptoUtil.generateSessionKey(session.sessionPublicKey)
 
+            if (!active()) return
             // Auth succeeded — reset both fail counters
-            shortcutFailCount = 0
-            fullAuthFailCount = 0
+            plugin.authenticationSucceeded(this.session)
 
             EversenseLogger.info(TAG, "365 auth complete — ready for full sync")
-            Eversense365Communicator.fullSync(this, preferences, plugin.watchers, force = true)
-                        // Read glucose immediately after auth so readings don't wait for next Keep Alive
+            Eversense365Communicator.fullSync(this, preferences, plugin.watchersFor(this.session), force = true)
+            // Read glucose immediately after auth so readings don't wait for next Keep Alive
             // This prevents late readings after reconnect from fullSync disconnect fix
             try {
-                Eversense365Communicator.readGlucose(this, preferences, plugin.watchers)
+                Eversense365Communicator.readGlucose(this, preferences, plugin.watchersFor(this.session))
             } catch (e: Exception) {
                 EversenseLogger.warning(TAG, "[365] readGlucose after auth failed (non-fatal): $e")
             }
-EversenseLogger.info(TAG, "365 transmitter ready — notifying watchers")
+            EversenseLogger.info(TAG, "365 transmitter ready — notifying watchers")
+            if (!active()) return
             transmitterReady = true
+            plugin.sessionReady(this.session)
             // Attempt finished successfully; release the in-progress guard.
-            plugin.onConnectAttemptFinished()
-            handler.post { plugin.watchers.forEach { it.onTransmitterReady() } }
+            handler.post { plugin.watchersFor(this.session).forEach { it.onTransmitterReady() } }
 
         } catch (exception: Exception) {
+            if (generation != linkGeneration) return
+            plugin.authenticationFailed(this.session, shortcutAttempt)
+            if (!active()) return
             EversenseLogger.error(TAG, "[365] authV2 failed: $exception")
             exception.printStackTrace()
 
-            // After first successful auth, avoid calling the DMS server on every reconnect -
-            // a single transient shortcut failure (e.g. one dropped BLE write) just retries the
-            // shortcut on the next connect. But if the transmitter's session genuinely doesn't
-            // accept our cached shortcut credentials (observed: AuthStart gets rejected with a
-            // WhoAmI-shaped response every attempt), retrying the same shortcut forever never
-            // recovers - only a fresh WhoAmI + DMS login + fleet certificate handshake can. Force
-            // that fallback once SHORTCUT_FAIL_THRESHOLD consecutive failures confirm it's not
-            // just a one-off glitch.
-            if (cryptoUtil.canUseShortcut()) {
-                shortcutFailCount++
-                if (shortcutFailCount >= SHORTCUT_FAIL_THRESHOLD) {
-                    EversenseLogger.warning(TAG, "Shortcut fail threshold reached — forcing full re-auth (WhoAmI + DMS login) on next connect")
-                    shortcutFailCount = 0
-                    cryptoUtil.disallowUseShortcut()
-                } else {
-                    EversenseLogger.warning(TAG, "Shortcut auth failed ($shortcutFailCount/$SHORTCUT_FAIL_THRESHOLD) — will retry shortcut on next connect (no DMS re-auth)")
-                }
-            } else {
-                // Shortcut is currently disallowed, so this failure happened somewhere in the
-                // mandatory WhoAmI + DMS login + fleet cert sequence - it could be the DMS server/
-                // network (observed in the wild: repeated SocketTimeoutException) or a BLE write
-                // timing out, and neither says anything about whether the shortcut credentials
-                // are actually bad. Don't get stuck requiring internet forever if that path is
-                // itself the thing that's broken right now - fall back to trying the shortcut
-                // again after enough consecutive failures.
-                fullAuthFailCount++
-                if (fullAuthFailCount >= FULL_AUTH_FAIL_THRESHOLD) {
-                    EversenseLogger.warning(TAG, "Full-auth fail threshold reached — re-enabling shortcut for next connect")
-                    fullAuthFailCount = 0
-                    cryptoUtil.allowUseShortcut()
-                } else {
-                    EversenseLogger.warning(TAG, "Full re-auth failed ($fullAuthFailCount/$FULL_AUTH_FAIL_THRESHOLD) — will retry full re-auth on next connect")
-                }
-            }
-        bluetoothGatt?.disconnect()
+            bluetoothGatt?.disconnect()
         }
     }
 

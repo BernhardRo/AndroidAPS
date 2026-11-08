@@ -10,8 +10,6 @@ import app.aaps.plugins.eversense.storage.EversenseStore
 import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
-import androidx.appcompat.app.AlertDialog
 import androidx.core.net.toUri
 import androidx.core.content.ContextCompat
 import app.aaps.plugins.eversense.storage.edit
@@ -37,14 +35,11 @@ import app.aaps.core.keys.IntKey
 import app.aaps.core.keys.LongNonKey
 import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.plugins.eversense.EversenseCGMPlugin
-import app.aaps.plugins.eversense.callbacks.EversenseScanCallback
 import app.aaps.plugins.eversense.callbacks.EversenseWatcher
 import app.aaps.plugins.source.compose.BgSourceComposeContent
 import app.aaps.plugins.eversense.enums.EversenseAlarm
 import app.aaps.plugins.eversense.enums.EversenseType
 import app.aaps.plugins.eversense.models.EversenseCGMResult
-import app.aaps.plugins.eversense.models.EversenseScanResult
-import app.aaps.plugins.eversense.models.EversenseSecureState
 import app.aaps.plugins.eversense.models.EversenseState
 import app.aaps.plugins.eversense.util.StorageKeys
 import kotlinx.coroutines.CoroutineScope
@@ -79,6 +74,9 @@ import app.aaps.plugins.source.keys.EversenseBooleanKey
 import app.aaps.plugins.source.keys.EversenseRuntimeKey
 import app.aaps.plugins.source.eversense.EversenseStringKey as LegacyEversenseStringKey
 import kotlin.coroutines.resume
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 
 @ContributesIntoMap(AppScope::class, binding = binding<PluginBase>())
 @ContributesBinding(AppScope::class, binding = binding<EversenseCalibrationSource>())
@@ -128,19 +126,14 @@ class EversensePlugin(
     private val mainHandler = Handler(Looper.getMainLooper())
     private var ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    // connectGatt() calls made while the Bluetooth radio is off never fire any callback, so the
-    // timer-based reconnect backoff in EversenseGattCallback can silently retry into a dead radio
-    // and never recover. This receiver re-triggers a reconnect the moment the adapter is confirmed
-    // back on, regardless of what those timers happened to do in the meantime. Same pattern as
-    // RileyLinkBluetoothStateReceiver. Uses forceReconnect() rather than connect() because Android
-    // also doesn't reliably deliver a disconnect callback when the radio powers off in the first
-    // place, so EversenseGattCallback's "connected" flag may be stale true here.
+    // Android can omit the disconnect callback while Bluetooth is off. Reopen the client when
+    // the radio returns, respecting manual pause and the source's stopped state.
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
             if (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR) == BluetoothAdapter.STATE_ON) {
                 aapsLogger.info(LTag.BGSOURCE, "Bluetooth turned back on — forcing Eversense reconnect")
                 ioScope.launch {
-                    eversense.forceReconnect()
+                    eversense.onBluetoothAvailable()
                 }
             }
         }
@@ -170,39 +163,6 @@ class EversensePlugin(
     private val NO_SIGNAL_WARNING_THRESHOLD = 3
     private val CALIBRATION_RECONNECT_TIMEOUT_MS = 30_000L
 
-    // Liveness watchdog. Android does not always deliver a disconnect callback when a BLE link
-    // dies silently (out of range, transmitter reset, radio glitch). When that happens the
-    // gattCallback's "connected" flag stays stale true, so isConnected() keeps reporting
-    // connected, the status screen shows a green check, and none of the reconnect timers fire
-    // (they only run while we believe we are disconnected). Readings simply stop with nothing
-    // noticing. This watchdog is the backstop: while we believe we are connected, if no data has
-    // arrived from the transmitter for STALE_DATA_THRESHOLD_MS, treat the link as dead and force
-    // a fresh reconnect (forceReconnect clears the stale flag). The 365 sends a reading about
-    // every 5 minutes, so 7 minutes leaves one missed cycle of slack before we act.
-    // elapsedRealtime is used for the age check because it keeps counting across deep sleep.
-    @Volatile
-    private var lastTransmitterDataAt: Long = SystemClock.elapsedRealtime()
-    private val WATCHDOG_INTERVAL_MS = 60_000L
-    private val STALE_DATA_THRESHOLD_MS = 7 * 60_000L
-    private val livenessWatchdogRunnable = object : Runnable {
-        override fun run() {
-            val stale = SystemClock.elapsedRealtime() - lastTransmitterDataAt
-            if (eversense.isConnected() && stale > STALE_DATA_THRESHOLD_MS) {
-                aapsLogger.warn(
-                    LTag.BGSOURCE,
-                    "Liveness watchdog — believed connected but no transmitter data for ${stale / 1000}s, forcing reconnect"
-                )
-                // Push the marker forward so we do not re-fire every tick while the forced
-                // reconnect is still in flight; a real reading resets it again.
-                lastTransmitterDataAt = SystemClock.elapsedRealtime()
-                ioScope.launch {
-                    eversense.forceReconnect()
-                }
-            }
-            mainHandler.postDelayed(this, WATCHDOG_INTERVAL_MS)
-        }
-    }
-    private var releaseForOfficialApp: Boolean = false
     @Volatile private var placementNotificationSnoozed: Boolean = false
 
     override suspend fun onStart() {
@@ -210,21 +170,21 @@ class EversensePlugin(
         ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         eversense.addWatcher(this)
         context.registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
-        if (hasBluetoothPermissions()) {
-            aapsLogger.debug(LTag.BGSOURCE, "onStart — permissions granted, attempting auto-reconnect")
-            ioScope.launch {
-                eversense.connect(null)
-            }
-        } else {
+        if (!hasBluetoothPermissions()) {
             aapsLogger.warn(LTag.BGSOURCE, "Bluetooth permissions not granted — requesting permissions")
             requestBluetoothPermissions()
         }
         // Always sync credentials on startup — eversense.is365() is false until first connect
         // so we must set username/password unconditionally for new phone first-boot
         checkCredentialsNotification()
-        // Start the liveness watchdog. onStop clears it via mainHandler.removeCallbacksAndMessages.
-        lastTransmitterDataAt = SystemClock.elapsedRealtime()
-        mainHandler.postDelayed(livenessWatchdogRunnable, WATCHDOG_INTERVAL_MS)
+        eversense.start()
+        combine(
+            preferences.observe(EversenseStringKey.EversenseUsername),
+            preferences.observe(EversenseStringKey.EversensePassword),
+            preferences.observe(EversenseBooleanKey.EversenseEuropeanRegion)
+        ) { user, password, region -> Triple(user, password, region) }
+            .onEach { checkCredentialsNotification() }
+            .launchIn(ioScope)
     }
 
     override suspend fun onStop() {
@@ -232,6 +192,7 @@ class EversensePlugin(
         ioScope.cancel()
         mainHandler.removeCallbacksAndMessages(null)
         eversense.removeWatcher(this)
+        eversense.stop()
         try {
             context.unregisterReceiver(bluetoothStateReceiver)
         } catch (e: IllegalArgumentException) {
@@ -302,49 +263,20 @@ class EversensePlugin(
         eversense.connect(null)
     }
 
+    @Synchronized
     private fun checkCredentialsNotification() {
         val username = preferences.get(EversenseStringKey.EversenseUsername)
         val password = preferences.get(EversenseStringKey.EversensePassword)
         if (username.isEmpty() || password.isEmpty()) {
+            eversense.clearCredentials()
             notificationManager.post(
                 NotificationId.EVERSENSE_CREDENTIALS,
                 rh.gs(R.string.eversense_credentials_missing),
                 level = NotificationLevel.URGENT
             )
         } else {
-            // Sync credentials into SECURE_STATE immediately — fixes new phone deadlock
-            // where login fails before first glucose reading so SECURE_STATE never gets populated
-            val secureState = getSecureState()
-            val europeanRegion = preferences.get(EversenseBooleanKey.EversenseEuropeanRegion)
-            // Region flips the DMS host a cached token was issued by, so it must invalidate
-            // the token cache exactly like a credentials change does.
-            val credentialsChanged = secureState.username != username || secureState.password != password || secureState.isEuropeanRegion != europeanRegion
-            secureState.username = username
-            secureState.password = password
-            secureState.isEuropeanRegion = europeanRegion
-            saveSecureState(secureState)
-            // Also set on EversenseCGMPlugin so GattCallback can sync before login
-            eversense.username = username
-            eversense.password = password
-            if (credentialsChanged) {
-                securePrefs.edit(commit = true) {
-                    remove(app.aaps.plugins.eversense.util.StorageKeys.ACCESS_TOKEN)
-                    remove(app.aaps.plugins.eversense.util.StorageKeys.ACCESS_TOKEN_EXPIRY)
-                }
-                aapsLogger.info(LTag.BGSOURCE, "Eversense: credentials synced to secure state")
-            }
+            eversense.setCredentials(username, password, preferences.get(EversenseBooleanKey.EversenseEuropeanRegion))
             notificationManager.dismiss(NotificationId.EVERSENSE_CREDENTIALS)
-        }
-    }
-
-    private fun getSecureState(): EversenseSecureState {
-        val stateJson = securePrefs.getString(StorageKeys.SECURE_STATE, null) ?: "{}"
-        return json.decodeFromString(stateJson)
-    }
-
-    private fun saveSecureState(state: EversenseSecureState) {
-        securePrefs.edit(commit = true) {
-            putString(StorageKeys.SECURE_STATE, json.encodeToString(EversenseSecureState.serializer(), state))
         }
     }
 
@@ -364,12 +296,11 @@ class EversensePlugin(
                 )
             ),
             EversenseIntentKey.EversenseSignOut.withClick {
-                val cleared = getSecureState().also {
-                    it.username = ""
-                    it.password = ""
+                synchronized(this) {
+                    preferences.put(EversenseStringKey.EversenseUsername, "")
+                    preferences.put(EversenseStringKey.EversensePassword, "")
+                    eversense.clearCredentials()
                 }
-                saveSecureState(cleared)
-                aapsLogger.info(LTag.BGSOURCE, "Eversense credentials cleared by user")
             },
             EversenseIntentKey.EversenseDocumentation.withClick {
                 val intent = Intent(
@@ -387,26 +318,6 @@ class EversensePlugin(
 
     private fun openActivity(activity: Class<*>) {
         context.startActivity(Intent(context, activity).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    }
-
-    private fun startOfficialAppReleaseReconnectLoop() {
-        if (!releaseForOfficialApp) return
-        aapsLogger.info(LTag.BGSOURCE, "Release mode — attempting reconnect")
-        ioScope.launch {
-            eversense.connect(null)
-            mainHandler.postDelayed({
-                if (eversense.isConnected()) {
-                    aapsLogger.info(LTag.BGSOURCE, "Reconnected after official app release")
-                    releaseForOfficialApp = false
-                    mainHandler.post {
-                        notificationManager.dismiss(NotificationId.EVERSENSE_RELEASE)
-                    }
-                } else {
-                    aapsLogger.info(LTag.BGSOURCE, "Reconnect failed — retrying in 5 minutes")
-                    mainHandler.postDelayed({ startOfficialAppReleaseReconnectLoop() }, 300000L)
-                }
-            }, 10000L)
-        }
     }
 
     private fun signalToLabel(strength: Int): String = when {
@@ -546,7 +457,6 @@ class EversensePlugin(
     override fun onTransmitterReady() {
         aapsLogger.info(LTag.BGSOURCE, "Transmitter ready — triggering fullSync")
         // A fresh connection counts as liveness even before the first reading arrives.
-        lastTransmitterDataAt = SystemClock.elapsedRealtime()
         eversense.submitToExecutorAndSync(force = true)
     }
 
@@ -594,7 +504,6 @@ class EversensePlugin(
 
     override fun onCGMRead(type: EversenseType, readings: List<EversenseCGMResult>) {
         // The transmitter is alive — reset the liveness watchdog.
-        lastTransmitterDataAt = SystemClock.elapsedRealtime()
         // Log what the BLE layer actually produced, per reading, before anything downstream can
         // filter or reshape it. The DMS uploader drops readings with no rawResponseHex and keys
         // the portal record on sensorId, and neither field is visible anywhere else in an exported
@@ -638,37 +547,7 @@ class EversensePlugin(
 
             // Upload readings to Eversense cloud so official app sees data without needing BLE
             if ((type == EversenseType.EVERSENSE_365 || type == EversenseType.EVERSENSE_E3) && cloudUploadEnabled()) {
-                val prefs = eversense.preferences
-                // Sync credentials from AAPS preferences into SECURE_STATE so EversenseHttp365Util can read them
-                val username = preferences.get(EversenseStringKey.EversenseUsername)
-                val password = preferences.get(EversenseStringKey.EversensePassword)
-                if (username.isNotEmpty() && password.isNotEmpty()) {
-                    val secureState = getSecureState()
-                    val europeanRegion = preferences.get(EversenseBooleanKey.EversenseEuropeanRegion)
-                    // Only invalidate the token cache if credentials or region have actually
-                    // changed — region flips the DMS host a cached token was issued by.
-                    val credentialsChanged = secureState.username != username || secureState.password != password || secureState.isEuropeanRegion != europeanRegion
-                    secureState.username = username
-                    secureState.password = password
-                    secureState.isEuropeanRegion = europeanRegion
-                    saveSecureState(secureState)
-                    if (credentialsChanged) {
-                        val prefs2 = eversense.preferences
-                        prefs2.edit(commit = true) {
-                            remove(app.aaps.plugins.eversense.util.StorageKeys.ACCESS_TOKEN)
-                            remove(app.aaps.plugins.eversense.util.StorageKeys.ACCESS_TOKEN_EXPIRY)
-                        }
-                        aapsLogger.info(LTag.BGSOURCE, "Eversense: credentials changed — token cache cleared, will re-login on next upload")
-                    }
-                    notificationManager.dismiss(NotificationId.EVERSENSE_CREDENTIALS)
-                } else {
-                    notificationManager.post(
-                        NotificationId.EVERSENSE_CREDENTIALS,
-                        rh.gs(R.string.eversense_credentials_missing),
-                        level = NotificationLevel.URGENT
-                    )
-                }
-
+                val prefs = eversense.activeSessionStore() ?: return@launch
                 if (type == EversenseType.EVERSENSE_365) {
                     // E365 US upload
                     val outcome = try {
@@ -762,59 +641,6 @@ class EversensePlugin(
                 }
             }
         }
-    }
-
-    private fun showDeviceSelectionDialog(context: Context) {
-        val foundDevices = mutableListOf<EversenseScanResult>()
-        var isCancelled = false
-        var dialog: AlertDialog? = null
-
-        val scanCallback = object : EversenseScanCallback {
-            override fun onResult(item: EversenseScanResult) {
-                val isEversenseTransmitter = item.name.matches(Regex("T\\d+.*"))
-                if (!isCancelled && isEversenseTransmitter && foundDevices.none { it.name == item.name }) {
-                    foundDevices.add(item)
-                    aapsLogger.info(LTag.BGSOURCE, "Scan found device: ${item.name}")
-                }
-            }
-        }
-
-        eversense.startScan(scanCallback)
-
-        mainHandler.postDelayed({
-            if (isCancelled) return@postDelayed
-            eversense.stopScan()
-            dialog?.dismiss()
-
-            if (foundDevices.isEmpty()) {
-                AlertDialog.Builder(context)
-                    .setTitle(rh.gs(R.string.eversense_scan_title))
-                    .setMessage(rh.gs(R.string.eversense_no_transmitters_found))
-                    .setPositiveButton(android.R.string.ok, null)
-                    .show()
-            } else {
-                val items = foundDevices.map { it.name }.toTypedArray()
-                AlertDialog.Builder(context)
-                    .setTitle(rh.gs(R.string.eversense_scan_title))
-                    .setItems(items) { _, position ->
-                        val selected = foundDevices[position]
-                        aapsLogger.info(LTag.BGSOURCE, "User selected device: ${selected.name}")
-                        eversense.connect(selected.device)
-                    }
-                    .setNegativeButton(rh.gs(R.string.eversense_scan_cancel), null)
-                    .show()
-            }
-        }, 10000)
-
-        dialog = AlertDialog.Builder(context)
-            .setTitle(rh.gs(R.string.eversense_scan_title))
-            .setMessage(rh.gs(R.string.eversense_scan_in_progress))
-            .setNegativeButton(rh.gs(R.string.eversense_scan_cancel)) { _, _ ->
-                isCancelled = true
-                eversense.stopScan()
-            }
-            .setCancelable(false)
-            .show()
     }
 
 }
