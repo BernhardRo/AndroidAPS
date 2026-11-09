@@ -24,7 +24,7 @@ kotlin {
             runtimeOnly(libs.org.junit.platform.launcher)
             implementation(libs.org.mockito.kotlin)
             implementation(libs.org.mockito.junit.jupiter)
-            implementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+            implementation("com.squareup.okhttp3:mockwebserver:5.5.1")
         }
     }
 }
