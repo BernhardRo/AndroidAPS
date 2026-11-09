@@ -15,7 +15,7 @@ kotlin {
             api(libs.kotlinx.serialization.json)
             api(libs.org.slf4j.api)
             api(libs.com.github.tony19.logback.android)
-            implementation("org.bouncycastle:bcpkix-jdk18on:1.81")
+            implementation("org.bouncycastle:bcpkix-jdk18on:1.86")
             implementation("org.bouncycastle:bcprov-jdk18on:1.81")
         }
         getByName("androidHostTest").dependencies {
