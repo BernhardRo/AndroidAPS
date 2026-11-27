@@ -16,6 +16,7 @@ import app.aaps.core.interfaces.notifications.AapsNotification
 import app.aaps.core.interfaces.notifications.AlarmSound
 import app.aaps.core.interfaces.notifications.AlarmSoundPlayer
 import app.aaps.core.interfaces.notifications.NotificationHolder
+import app.aaps.core.interfaces.notifications.NotificationIcon
 import app.aaps.core.interfaces.notifications.NotificationLevel
 import app.aaps.core.interfaces.notifications.NotificationManager
 import app.aaps.core.interfaces.notifications.SystemNotificationPlatform
@@ -88,7 +89,8 @@ class AndroidSystemNotificationPlatform(
                 notificationKey = notification.instanceKey,
                 title = title,
                 body = notification.text,
-                urgent = true
+                urgent = true,
+                smallIcon = notification.icon?.let(::drawableFor)
             )
         } else if (preferences.get(BooleanKey.AlertUrgentAsAndroidNotification) && notification.actions.isEmpty()) {
             raiseSystemNotification(notification, title)
@@ -160,7 +162,7 @@ class AndroidSystemNotificationPlatform(
     private fun raiseSystemNotification(n: AapsNotification, title: String) {
         val largeIcon = BitmapFactory.decodeResource(context.resources, iconsProvider.getIcon())
         val builder = NotificationCompat.Builder(context, NotificationManager.CHANNEL_ID)
-            .setSmallIcon(iconsProvider.getNotificationIcon())
+            .setSmallIcon(n.icon?.let(::drawableFor) ?: iconsProvider.getNotificationIcon())
             .setLargeIcon(largeIcon)
             .setContentTitle(title)
             .setContentText(n.text)
@@ -174,6 +176,12 @@ class AndroidSystemNotificationPlatform(
         // twice that is the same number as before (instanceKey == id.ordinal); for the few that can, it
         // is what stops a second one replacing the first in the tray.
         notificationManager.notify(n.instanceKey, builder.build())
+    }
+
+    private fun drawableFor(icon: NotificationIcon): Int = when (icon) {
+        NotificationIcon.PREDICTED_HIGH -> R.drawable.ic_notif_predicted_high
+        NotificationIcon.PREDICTED_LOW -> R.drawable.ic_notif_predicted_low
+        NotificationIcon.GLUCOSE_ALERT -> R.drawable.ic_notif_glucose_alert
     }
 
     private fun deleteIntent(instanceKey: Int): PendingIntent {

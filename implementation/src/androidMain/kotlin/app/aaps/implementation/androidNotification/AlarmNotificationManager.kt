@@ -450,11 +450,12 @@ class AlarmNotificationManager(
         notificationKey: Int,
         title: String,
         body: String,
-        urgent: Boolean
+        urgent: Boolean,
+        smallIcon: Int? = null
     ) {
         channels // created on first post, see the field
         val builder = NotificationCompat.Builder(context, if (urgent) CHANNEL_SILENT_URGENT else CHANNEL_SILENT)
-            .setSmallIcon(iconsProvider.getNotificationIcon())
+            .setSmallIcon(smallIcon ?: iconsProvider.getNotificationIcon())
             .setLargeIcon(BitmapFactory.decodeResource(context.resources, iconsProvider.getIcon()))
             .setContentTitle(title)
             .setContentText(body)

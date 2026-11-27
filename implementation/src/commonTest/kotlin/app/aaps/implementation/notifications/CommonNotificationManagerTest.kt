@@ -5,6 +5,7 @@ import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.notifications.AapsNotification
 import app.aaps.core.interfaces.notifications.AlarmSound
 import app.aaps.core.interfaces.notifications.NotificationAction
+import app.aaps.core.interfaces.notifications.NotificationIcon
 import app.aaps.core.interfaces.notifications.NotificationId
 import app.aaps.core.interfaces.notifications.NotificationLevel
 import app.aaps.core.interfaces.notifications.SystemNotificationPlatform
@@ -127,6 +128,19 @@ class CommonNotificationManagerTest {
     private fun toWear() = rxBus.sent.filterIsInstance<EventMobileToWear>().map { it.payload }
 
     private fun texts(sut: CommonNotificationManager) = sut.notifications.value.map { it.text }
+
+    @Test
+    fun `custom icon is kept on the notification`() = runTest {
+        val sut = createSut()
+
+        sut.postWithIcon(
+            id = NotificationId.EVERSENSE_ALARM,
+            text = "Predicted high glucose",
+            icon = NotificationIcon.PREDICTED_HIGH
+        )
+
+        assertEquals(NotificationIcon.PREDICTED_HIGH, platform.lastShown?.icon)
+    }
 
     // ---------------------------------------------------------------------------------------------
     // The registry
