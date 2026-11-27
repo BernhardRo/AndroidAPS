@@ -21,6 +21,18 @@ interface NotificationManager {
         validityCheck: (() -> Boolean)? = null
     ): NotificationHandle
 
+    /**
+     * Posts a notification with a platform-specific icon hint.
+     * Platforms that do not support custom notification icons use the regular post behavior.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun postWithIcon(
+        id: NotificationId,
+        text: String,
+        icon: NotificationIcon,
+        level: NotificationLevel = id.defaultLevel
+    ): NotificationHandle = post(id, text, level, validMinutes = 0)
+
     fun post(
         id: NotificationId,
         text: String,

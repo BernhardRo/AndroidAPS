@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import app.aaps.plugins.eversense.storage.edit
 import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.notifications.NotificationId
+import app.aaps.core.interfaces.notifications.NotificationIcon
 import app.aaps.core.interfaces.notifications.NotificationLevel
 import app.aaps.core.interfaces.notifications.NotificationManager
 import app.aaps.plugins.eversense.models.ActiveAlarm
@@ -569,11 +570,20 @@ class EversensePlugin(
             }
         }
         mainHandler.post {
-            notificationManager.post(
-                NotificationId.EVERSENSE_ALARM,
-                title,
-                level = level
-            )
+            val icon = when (alarm.code) {
+                EversenseAlarm.PREDICTIVE_HIGH -> NotificationIcon.PREDICTED_HIGH
+                EversenseAlarm.PREDICTIVE_LOW -> NotificationIcon.PREDICTED_LOW
+                EversenseAlarm.HIGH_GLUCOSE,
+                EversenseAlarm.LOW_GLUCOSE,
+                EversenseAlarm.SERIOUSLY_HIGH,
+                EversenseAlarm.SERIOUSLY_LOW -> NotificationIcon.GLUCOSE_ALERT
+                else -> null
+            }
+            if (icon == null) {
+                notificationManager.post(NotificationId.EVERSENSE_ALARM, title, level = level)
+            } else {
+                notificationManager.postWithIcon(NotificationId.EVERSENSE_ALARM, title, icon, level)
+            }
         }
     }
 

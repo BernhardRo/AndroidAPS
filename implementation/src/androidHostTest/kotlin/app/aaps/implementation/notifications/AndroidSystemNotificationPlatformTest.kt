@@ -10,6 +10,7 @@ import app.aaps.core.interfaces.notifications.AlarmSound
 import app.aaps.core.interfaces.notifications.AlarmSoundPlayer
 import app.aaps.core.interfaces.notifications.NotificationAction
 import app.aaps.core.interfaces.notifications.NotificationHolder
+import app.aaps.core.interfaces.notifications.NotificationIcon
 import app.aaps.core.interfaces.notifications.NotificationId
 import app.aaps.core.interfaces.notifications.NotificationLevel
 import app.aaps.core.interfaces.notifications.NotificationManager
@@ -23,6 +24,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
+import org.mockito.kotlin.isNull
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -70,14 +72,16 @@ class AndroidSystemNotificationPlatformTest {
     private fun notification(
         level: NotificationLevel,
         sound: AlarmSound? = null,
-        actions: List<NotificationAction> = emptyList()
+        actions: List<NotificationAction> = emptyList(),
+        icon: NotificationIcon? = null
     ) = AapsNotification(
         id = NotificationId.NEW_VERSION_DETECTED,
         instanceKey = 42,
         text = "text",
         level = level,
         sound = sound,
-        actions = actions
+        actions = actions,
+        icon = icon
     )
 
     @Test
@@ -87,7 +91,11 @@ class AndroidSystemNotificationPlatformTest {
         sut.show(notification(NotificationLevel.URGENT, sound = AlarmSound.URGENT_ALARM), "Urgent")
 
         verify(alarmNotificationManager).postSilentAlarmNotification(
-            notificationKey = eq(42), title = eq("Urgent"), body = eq("text"), urgent = eq(true)
+            notificationKey = eq(42),
+            title = eq("Urgent"),
+            body = eq("text"),
+            urgent = eq(true),
+            smallIcon = isNull()
         )
         verify(preferences, never()).get(any<BooleanKey>())
     }
@@ -98,7 +106,7 @@ class AndroidSystemNotificationPlatformTest {
 
         sut.show(notification(NotificationLevel.NORMAL), "Info")
 
-        verify(alarmNotificationManager, never()).postSilentAlarmNotification(any(), any(), any(), any())
+        verify(alarmNotificationManager, never()).postSilentAlarmNotification(any(), any(), any(), any(), isNull())
     }
 
     @Test
@@ -108,7 +116,7 @@ class AndroidSystemNotificationPlatformTest {
 
         sut.show(notification(NotificationLevel.NORMAL, actions = listOf(mock())), "Info")
 
-        verify(alarmNotificationManager, never()).postSilentAlarmNotification(any(), any(), any(), any())
+        verify(alarmNotificationManager, never()).postSilentAlarmNotification(any(), any(), any(), any(), isNull())
     }
 
     @Test
@@ -119,7 +127,39 @@ class AndroidSystemNotificationPlatformTest {
 
         sut.show(notification(NotificationLevel.URGENT), "Urgent")
 
-        verify(alarmNotificationManager, never()).postSilentAlarmNotification(any(), any(), any(), any())
+        verify(alarmNotificationManager, never()).postSilentAlarmNotification(any(), any(), any(), any(), isNull())
+    }
+
+    @Test
+    fun `custom icon is used for ordinary notifications`() {
+        whenever(preferences.get(BooleanKey.AlertUrgentAsAndroidNotification)).thenReturn(true)
+
+        sut.show(notification(NotificationLevel.NORMAL, icon = NotificationIcon.PREDICTED_HIGH), "Info")
+
+        val posted = checkNotNull(
+            shadowOf(context.getSystemService(AndroidNotificationManager::class.java)).getNotification(42)
+        )
+        assertThat(posted.smallIcon.resId).isEqualTo(app.aaps.implementation.R.drawable.ic_notif_predicted_high)
+    }
+
+    @Test
+    fun `custom icon is passed to silent urgent notifications`() {
+        sut.show(
+            notification(
+                NotificationLevel.URGENT,
+                sound = AlarmSound.URGENT_ALARM,
+                icon = NotificationIcon.GLUCOSE_ALERT
+            ),
+            "Urgent"
+        )
+
+        verify(alarmNotificationManager).postSilentAlarmNotification(
+            notificationKey = eq(42),
+            title = eq("Urgent"),
+            body = eq("text"),
+            urgent = eq(true),
+            smallIcon = eq(app.aaps.implementation.R.drawable.ic_notif_glucose_alert)
+        )
     }
 
     @Test

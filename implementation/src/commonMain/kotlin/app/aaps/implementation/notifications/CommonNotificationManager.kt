@@ -8,6 +8,7 @@ import app.aaps.core.interfaces.notifications.AapsNotification
 import app.aaps.core.interfaces.notifications.AlarmSound
 import app.aaps.core.interfaces.notifications.NotificationAction
 import app.aaps.core.interfaces.notifications.NotificationHandle
+import app.aaps.core.interfaces.notifications.NotificationIcon
 import app.aaps.core.interfaces.notifications.NotificationId
 import app.aaps.core.interfaces.notifications.NotificationLevel
 import app.aaps.core.interfaces.notifications.NotificationManager
@@ -79,6 +80,26 @@ class CommonNotificationManager(
 
     override fun cleanUp() = lock.withLock { removeExpired() }
 
+    override fun postWithIcon(
+        id: NotificationId,
+        text: String,
+        icon: NotificationIcon,
+        level: NotificationLevel
+    ): NotificationHandle {
+        val now = now()
+        return postInternal(
+            id = id,
+            text = text,
+            level = level,
+            date = now,
+            validTo = 0L,
+            sound = null,
+            actions = emptyList(),
+            validityCheck = null,
+            icon = icon
+        )
+    }
+
     override fun post(
         id: NotificationId,
         text: String,
@@ -139,7 +160,8 @@ class CommonNotificationManager(
         validTo: Long,
         sound: AlarmSound?,
         actions: List<NotificationAction>,
-        validityCheck: (() -> Boolean)?
+        validityCheck: (() -> Boolean)?,
+        icon: NotificationIcon? = null
     ): NotificationHandle = lock.withLock {
         // Clean up expired notifications piggyback on writes.
         removeExpired()
@@ -164,7 +186,8 @@ class CommonNotificationManager(
             validTo = validTo,
             sound = sound,
             actions = actions,
-            validityCheck = validityCheck
+            validityCheck = validityCheck,
+            icon = icon
         )
         current.add(notification)
         current.sortBy { it.level.priority }
