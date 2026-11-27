@@ -33,6 +33,46 @@ says what has to pass, not how.
   temp basal and extended bolus end with the removal (`PumpSync.connectNewPump`), or a 0 U/h stop starts. The removal
   does not depend on the screen that started it.
 
+## A. Pump alerts (checked in review)
+
+How the core shows, rings and silences an alert is in `PUMP_DESIGN.md`, section 2.
+
+- **A1** Every alert the pump reports, and every delivery problem the user must act on, goes through `Alerts`.
+  Messages that are not pump alerts (wrong driver, wrong password, the time was updated) stay plain cards.
+- **A2** The driver plays no sound and has no notification channel, alarm screen or foreground check of its own.
+- **A3** The severity follows what the pump's event does to dosing (`DosingEffect`, decided 2026-11-24): insulin
+  stopped, or not what AAPS thinks it gives, is `NOW` (CRITICAL); affected soon unless the user acts is `SOON`
+  (WARNING); something to do that does not affect dosing is `ACTION` (WARNING); the rest is `INFO`. The driver says
+  the effect, and the severity comes from it.
+- **A4** `onStart` raises again what the pump still holds, with the same key and `raisedAt`. `raisedAt` comes from the
+  pump or the driver's own store, never from the time of the call: a silence the user gave holds for that occurrence
+  only.
+- **A5** The pump-side step (clear, confirm, silence on the pump) is the alert's action, and it runs through the queue.
+- **A6** The driver resolves an alert when the pump drops it, and all of them when the pump is removed or the driver
+  stops.
+- **A7** Each alert has a kind of the driver's own (`AlertKind`): one kind per title the user sees, not one per alarm
+  cause, with the `DosingEffect` of the causes shown under it. Its group follows from those (`AlertGroup.of`), and a
+  kind with a cause that affects dosing is protected: the user cannot set it to Silent or Off. As `CarelevoAlertKind`.
+- **A8** The kinds are in the driver's `AlertKindCatalogue`, bound in its DI registration (`@Provides @IntoSet`), with
+  `inUse()` true while the driver is the active pump. Then they are in Settings > Alerts > Alert kinds, under the pump,
+  and the user's choice for each applies.
+- **A9** An alert that stays while the pump holds it is `AlertLifetime.CONDITION`, and the driver resolves it (A6). A
+  message that only needs to be read is `AlertLifetime.EVENT`, and answering it ends it. The lifetime decides the
+  alarm screen: a button per silence length for a condition, Mute 5 min and Silence for an event, all closing it.
+- **A10** The title and the text are `TextRef`s - string resources, with a pump value as an argument - never resolved
+  text, so each phone shows them in its own language, iOS too.
+
+## K. A driver in shared code (KMP)
+
+Must for a new driver. A driver that is Android only today meets these when it moves (see Exceptions). How to move one
+is in the `kmp-module-flip` skill and in `PUMP_DESIGN.md`, section 3.
+
+- **K1** The driver logic, its screens and its view models are in commonMain; platform work is behind ports, with the
+  Android implementation in androidMain.
+- **K2** A platform without the driver's ports has no such pump: the driver is registered by a binding container that
+  each platform includes, not contributed from commonMain.
+- **K3** The driver's shared tests run on iOS (`.github/workflows/ios-ci.yml`).
+
 ## E. Emulator (in the tree, next to the driver)
 
 - **E1** The emulator implements `PumpEmulatorControl`. A hook the pump cannot do returns false (or null), so a missing
@@ -63,10 +103,12 @@ A class `<Pump>ScenarioTest : AbstractPumpScenarioTest()` runs all of these. A s
   `aTempBasalCancelThatIsLostKeepsTheTempBasal`.
 - **S6** Other lost answers: `aProfileWhoseAnswerIsLostIsKnown`, `anExtendedBolusWhoseAnswerIsLostIsKnown`,
   `anExtendedBolusCancelWhoseAnswerIsLostIsKnown`.
-- **S7** The driver itself: `aDriverReloadKeepsThePump`, `aPumpOutOfRangeFailsCleanly`, `aDeadPumpCanBeRemoved` (D9).
+- **S7** The driver itself: `aDriverReloadKeepsThePump`, `aPumpSwitchedAwayAndBackKeepsItsTempBasal`,
+  `aPumpOutOfRangeFailsCleanly`, `aDeadPumpCanBeRemoved` (D9).
 - **S8** What happens on the pump: `aSuspendOnThePumpIsRecorded`, `aBolusGivenOnThePumpIsImported`,
   `aBolusWithThePumpClockOffIsStoredAtItsTime`.
-- **S9** Alarms: `anOcclusionRaisesAnAlarm`, `anEmptyReservoirRaisesAnAlarm`.
+- **S9** Alarms: `anOcclusionRaisesAnAlarm`, `anEmptyReservoirRaisesAnAlarm` (an alarm the user hears: an URGENT card
+  with a sound, or the full-screen alarm), and `anOcclusionIsARingingAlert` (A1: it is a ringing pump alert).
 - **S10** App restart: `appKilledDuringABolus`, in its two runs (`killRestart 1` and `2`).
 - **S11** Pump-specific behaviour has a scenario of its own in the pump's class (for example a log that wraps, a
   setting the pump carries out later).
@@ -87,10 +129,15 @@ pump (bolus, temp basal and extended bolus dialogs) are tested once, not per pum
 
 - **T1** Must: each packet seen on a real pump is parsed in a unit test with the real bytes, with the date and the
   firmware in a comment.
-- **T2** Must, for a Bluetooth pump: the transport passes the shared transport contract test
-  (`<Pump>BleTransportContractTest`).
+- **T2** Must, for a Bluetooth pump: the driver talks through the shared `BleCentral` (version 2 of the Bluetooth
+  layer, one implementation for Android and one for iOS), and its emulator is an `EmulatedPeripheral` on
+  `EmulatedBleCentral`. A new driver has no Bluetooth code of its own. A driver still on version 1 (`BleTransport`)
+  passes the version 1 contract test (`<Pump>BleTransportContractTest`) until it moves; each move is tested on a real
+  pump.
 - **T3** Should: the driver's service against the emulator on the JVM (as `DanaRSServiceIntegrationTest`), so the unit
   run covers the service too.
+- **T4** Must, with A7: every alarm cause of the pump has its kind, a kind is protected exactly when one of its causes
+  affects dosing, and it is in the pump group of its effects (as `CarelevoAlertKindTest`).
 
 ## R. Real pump (a person runs these, the pump not on a body)
 
@@ -111,6 +158,9 @@ again for what a change touches. The result goes in the PR, with the date and th
 - **R12** The app restarted during a bolus: AAPS counts it once.
 - **R13** The pump switched off (or out of range) and removed in AAPS: AAPS says it was not reached, and counts no
   temp basal of it.
+- **R14** A pump alarm the pump can raise without harm (for example one of its reminders) rings in AAPS with its alarm
+  screen. One tap on a length (15 min or 30 min, also 1 h when it is not critical) silences it and closes the screen;
+  the card stays, without sound. The alert's action, on the alarm screen or on the card, clears it on the pump.
 
 ## C. CI and coverage
 
@@ -128,3 +178,14 @@ A requirement that a pump cannot meet stays visible:
 - a line in the PR that names the requirement and the reason.
 
 A requirement left out silently counts as not passed.
+
+Known exceptions in drivers that are in the tree now:
+
+- **Every driver but Carelevo, A1-A10 and T4:** they still raise alarms on their own. They move to `Alerts` one at a
+  time, each with a real-pump test (`PUMP_DESIGN.md`, section 4).
+- **Every driver but Carelevo and the virtual pump, K1-K3:** Android only. Each moves when it is next reworked.
+- **Carelevo, R14:** not run yet; the patch raised no alarm since the move to `Alerts`.
+
+- **Omnipod Eros, D2:** the activation wizard calls the pod directly for "Initialize Pod" and "Insert Cannula", not
+  through the queue. Left as it is until someone can test the change on an Eros pod with a RileyLink. The Dash and
+  Omnipod 5 drivers moved these steps to queue commands in #5591; Eros can use the same ones.

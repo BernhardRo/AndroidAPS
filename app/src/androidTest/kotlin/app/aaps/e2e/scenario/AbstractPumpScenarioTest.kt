@@ -185,7 +185,7 @@ abstract class AbstractPumpScenarioTest {
         // A status read compares what the pump runs with what AAPS has.
         assertWithMessage("status read").that(scenario.readStatus().success).isTrue()
         scenario.checkTempBasal()
-        scenario.checkNoAlarm(NotificationId.UNSUPPORTED_ACTION_IN_PUMP)
+        scenario.checkNoCard(NotificationId.UNSUPPORTED_ACTION_IN_PUMP)
     }
 
     /** The pump runs the bolus and its answer is lost. AAPS must count the insulin, at the latest after a status read. */
@@ -263,6 +263,30 @@ abstract class AbstractPumpScenarioTest {
         scenario.checkTempBasal()
         assertWithMessage("bolus after the reload").that(scenario.bolus(BOLUS).success).isTrue()
         scenario.checkBolusRecords()
+        scenario.checkNoBurst()
+    }
+
+    /**
+     * The user selects another pump and then this one again while a temp basal runs. The pump goes on with the temp
+     * basal the whole time, so after the switch back and a status read AAPS must count it again, and only once. Found by
+     * hand on an Omnipod 5: after a switch away and back the pod ran a temp basal that AAPS no longer counted.
+     *
+     * A low temp: a DanaR gives a high one as an extended bolus, and the pump would run no temp basal at all.
+     */
+    @Test
+    fun aPumpSwitchedAwayAndBackKeepsItsTempBasal() {
+        scenario.bringUp()
+        scenario.pair()
+        assertWithMessage("temp basal").that(scenario.tempBasal(LOW_TEMP_BASAL_RATE, TEMP_BASAL_MINUTES).success).isTrue()
+        assertWithMessage("the pump runs the temp basal").that(scenario.control.state().tempBasal).isNotNull()
+        scenario.checkTempBasal()
+
+        scenario.switchPumpAwayAndBack()
+
+        assertWithMessage("the pump still runs the temp basal").that(scenario.control.state().tempBasal).isNotNull()
+        assertWithMessage("status read after the switch back").that(scenario.readStatus().success).isTrue()
+        scenario.checkTempBasal()
+        if (scenario.canGiveExtendedBolus) scenario.checkExtendedBolus()
         scenario.checkNoBurst()
     }
 
@@ -546,14 +570,22 @@ abstract class AbstractPumpScenarioTest {
     @Test
     open fun anEmptyReservoirRaisesAnAlarm() = pumpAlarmRaisesAnAlarm(EmulatedAlarm.EMPTY_RESERVOIR)
 
-    private fun pumpAlarmRaisesAnAlarm(alarm: EmulatedAlarm) {
+    /**
+     * Acceptance A1: the occlusion is a pump alert of the core (`Alerts`), a critical card that rings - not an alarm
+     * the driver raises in its own way. A driver not on pump alerts yet skips this with the reason, so the gap stays
+     * visible until it moves.
+     */
+    @Test
+    open fun anOcclusionIsARingingAlert() = pumpAlarmRaisesAnAlarm(EmulatedAlarm.OCCLUSION, asAlert = true)
+
+    private fun pumpAlarmRaisesAnAlarm(alarm: EmulatedAlarm, asAlert: Boolean = false) {
         scenario.bringUp()
         scenario.pair()
         val raisedAt = System.currentTimeMillis()
         assertWithMessage("the pump raises $alarm").that(scenario.control.raise(alarm)).isTrue()
         // AAPS learns of it at the latest at its next connection to the pump.
         scenario.readStatusOnNewLink()
-        scenario.checkUrgentAlarmSince(raisedAt)
+        if (asAlert) scenario.checkAlertSince(raisedAt) else scenario.checkUrgentAlarmSince(raisedAt)
         // The alarm screen or its notification would stay into the next test.
         testGraphs.uiInteraction.stopAlarm("scenario end")
     }

@@ -115,6 +115,8 @@ enum class IntKey(
         title = KeysStrings.pref_title_sage_warning,
         defaultedBySM = true,
         unitType = UnitType.HOURS,
+        // A CGM source that knows its sensor's lifetime sets the limits itself
+        visibility = ElementVisibility.SENSOR_LIFETIME_UNKNOWN,
         sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)
     ),
     OverviewSageCritical(
@@ -125,6 +127,7 @@ enum class IntKey(
         title = KeysStrings.pref_title_sage_critical,
         defaultedBySM = true,
         unitType = UnitType.HOURS,
+        visibility = ElementVisibility.SENSOR_LIFETIME_UNKNOWN,
         sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)
     ),
     OverviewSbatWarning(
@@ -400,7 +403,6 @@ enum class IntKey(
         max = 10000,
         title = KeysStrings.pref_title_stale_data_threshold,
         defaultedBySM = true,
-        dependency = BooleanKey.AlertMissedBgReading,
         unitType = UnitType.MIN
     ),
     AlertsPumpUnreachableThreshold(

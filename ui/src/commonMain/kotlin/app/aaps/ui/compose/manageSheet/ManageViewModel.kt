@@ -27,6 +27,7 @@ import app.aaps.core.interfaces.rx.bus.RxBus
 import app.aaps.core.interfaces.rx.events.EventCustomActionsChanged
 import app.aaps.core.interfaces.rx.events.EventInitializationChanged
 import app.aaps.core.interfaces.rx.events.EventShowDialog
+import app.aaps.core.interfaces.source.CgmDriver
 import app.aaps.core.interfaces.sync.NsClient
 import app.aaps.core.interfaces.utils.DateUtil
 import app.aaps.core.keys.BooleanKey
@@ -76,8 +77,8 @@ class ManageViewModel(
     private val batchExecutor: BatchExecutor,
     private val nsClient: NsClient,
     private val visibilityContext: VisibilityContext,
-    // Unqualified: @ApplicationScope is a javax qualifier and cannot appear in commonMain. The graph
-    // binds the same instance under both names.
+    // Unqualified: the graph binds the one application scope with and without @ApplicationScope
+    // (AppCoroutineBindings), so this is the same instance.
     private val appScope: CoroutineScope
 ) : ViewModel() {
 
@@ -200,7 +201,10 @@ class ManageViewModel(
                     cancelExtendedBolusText = cancelExtendedBolusText,
                     isPatchPump = pumpDescription.isPatchPump,
                     pumpPlugin = activePlugin.activePumpInternal as PluginBase,
-                    customActions = customActions
+                    customActions = customActions,
+                    // Only while the BG source is a CgmDriver, and never on a client: the driver runs on the master's phone
+                    cgmPlugin = (activePlugin.activeBgSource as? CgmDriver as? PluginBase)
+                        ?.takeIf { !config.AAPSCLIENT }
                 )
             }
         }

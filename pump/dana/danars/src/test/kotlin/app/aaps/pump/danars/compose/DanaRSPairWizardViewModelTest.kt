@@ -1,9 +1,12 @@
 package app.aaps.pump.danars.compose
 
+import androidx.lifecycle.viewModelScope
 import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.pump.PumpSync
+import app.aaps.core.interfaces.pump.ble.AdapterState
 import app.aaps.core.interfaces.pump.ble.BleAdapter
+import app.aaps.core.interfaces.pump.ble.BleCentral
 import app.aaps.core.interfaces.pump.ble.BleScanner
 import app.aaps.core.interfaces.pump.ble.BleTransport
 import app.aaps.core.interfaces.pump.ble.BondState
@@ -13,6 +16,8 @@ import app.aaps.core.interfaces.pump.ble.ScannedDevice
 import app.aaps.core.interfaces.queue.CommandQueue
 import app.aaps.core.interfaces.resources.ResourceHelper
 import app.aaps.core.keys.interfaces.Preferences
+import app.aaps.core.ui.compose.pump.ScanProblem
+import app.aaps.core.ui.compose.pump.WizardScan
 import app.aaps.pump.dana.keys.DanaStringNonKey
 import app.aaps.pump.danars.DanaRSPlugin
 import app.aaps.pump.danars.services.BLEComm
@@ -23,19 +28,25 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.job
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.ArgumentMatchers.anyInt
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
+import org.mockito.kotlin.inOrder
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
+import org.mockito.kotlin.timeout
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
@@ -54,6 +65,8 @@ internal class DanaRSPairWizardViewModelTest {
     private val commandQueue: CommandQueue = mock()
     private val bleComm: BLEComm = mock()
     private val danaRSPlugin: DanaRSPlugin = mock()
+    private val adapterState = MutableStateFlow(AdapterState.ON)
+    private val bleCentral: BleCentral = mock<BleCentral>().also { whenever(it.adapterState).thenReturn(adapterState) }
 
     // Real flows so the two init collectors can be driven; the pairing state machine is only
     // reachable by emitting onto pairingState (see onPairingStateChanged).
@@ -76,11 +89,27 @@ internal class DanaRSPairWizardViewModelTest {
         sut = createSut(CoroutineScope(Dispatchers.Unconfined)) // runs the finish work right away
     }
 
-    private fun createSut(appScope: CoroutineScope) =
-        DanaRSPairWizardViewModel(aapsLogger, rh, bleTransport, bleComm, danaRSPlugin, preferences, config, pumpSync, commandQueue, appScope)
+    /** Every wizard a test made, so [tearDown] can stop its work. */
+    private val created = mutableListOf<DanaRSPairWizardViewModel>()
 
+    private fun createSut(appScope: CoroutineScope) =
+        DanaRSPairWizardViewModel(aapsLogger, rh, bleTransport, bleComm, danaRSPlugin, preferences, config, pumpSync, commandQueue, appScope, bleCentral)
+            .also { created += it }
+
+    /**
+     * Stops the work of every wizard before the test ends. `selectDevice` and `retry` pair on `Dispatchers.IO`, and
+     * the wait for the old bond to go runs for up to 5 s of real time. Left running, it called the adapter mock after
+     * the next test class had cleared all mocks (`TestBase` does that after each test). The exception then failed a
+     * test of that class with `UncaughtExceptionsBeforeTest`: `DanaRSServiceIntegrationTest` on CI.
+     */
     @AfterEach
-    fun tearDown() = Dispatchers.resetMain()
+    fun tearDown() {
+        val jobs = created.map { it.viewModelScope.coroutineContext.job }
+        jobs.forEach { it.cancel() }
+        runCurrent() // the collectors on the test Main end their cancellation here
+        runBlocking { withTimeout(STOP_TIMEOUT_MS) { jobs.joinAll() } }
+        Dispatchers.resetMain()
+    }
 
     /** Runs the init collectors and any tasks scheduled at the current virtual time — but not the
      *  pairing timeout's delay(), so a step assertion isn't clobbered by a fired timeout. */
@@ -144,7 +173,30 @@ internal class DanaRSPairWizardViewModelTest {
 
         assertThat(sut.uiState.value.step).isEqualTo(WizardStep.BLE_SCAN)
         assertThat(sut.uiState.value.devices).isEmpty()
+        assertThat(sut.scanState.value.scanning).isTrue()
         verify(scanner).startScan()
+    }
+
+    /** The scan ends by itself, so the step can say what it found and offer "Scan again". */
+    @Test
+    fun `the scan stops by itself after its time`() {
+        sut.startScan()
+        testDispatcher.scheduler.advanceTimeBy(WizardScan.DEFAULT_DURATION.inWholeMilliseconds + 1)
+
+        assertThat(sut.scanState.value.scanning).isFalse()
+        assertThat(sut.scanState.value.problem).isNull()
+        verify(scanner).stopScan()
+    }
+
+    /** With Bluetooth off nothing can be found: the step says so at once, instead of "Scanning…" for ever. */
+    @Test
+    fun `with Bluetooth off the scan ends at once and says why`() {
+        adapterState.value = AdapterState.OFF
+        sut.startScan()
+
+        assertThat(sut.scanState.value.scanning).isFalse()
+        assertThat(sut.scanState.value.problem).isEqualTo(ScanProblem.BLUETOOTH_OFF)
+        verify(scanner, never()).startScan()
     }
 
     @Test
@@ -331,6 +383,67 @@ internal class DanaRSPairWizardViewModelTest {
         assertThat(result.await()).isFalse()
     }
 
+    // ---- a new pairing starts from a new bond ---------------------------------------------------------
+
+    /**
+     * The phone kept a bond from an earlier pairing that the pump no longer had. A connection asks for a bond only
+     * when there is none, so the Dana-i dropped the link after each pump check and could never be paired.
+     */
+    @Test
+    fun `a selected pump is paired with a new bond and not the one left from an earlier pairing`() = runTest(testDispatcher) {
+        enterPairingProgress()
+        // old bond, removed, none when bonding starts, the new bond
+        whenever(adapter.bondState(any())).thenReturn(BondState.BONDED, BondState.NONE, BondState.NONE, BondState.NONE, BondState.BONDED)
+
+        sut.connectWhenBonded(device.address, "PairWizard", freshBond = true)
+
+        val order = inOrder(adapter, bleComm)
+        order.verify(adapter).removeBond(device.address)
+        order.verify(adapter).createBond(device.address)
+        order.verify(bleComm).connect("PairWizard", device.address)
+    }
+
+    @Test
+    fun `a pump the phone has no bond with is only bonded`() = runTest(testDispatcher) {
+        enterPairingProgress()
+        whenever(adapter.bondState(any())).thenReturn(BondState.NONE, BondState.NONE, BondState.BONDED)
+
+        sut.connectWhenBonded(device.address, "PairWizard", freshBond = true)
+
+        verify(adapter, never()).removeBond(any())
+        verify(adapter).createBond(device.address)
+        verify(bleComm).connect("PairWizard", device.address)
+    }
+
+    /** A retry comes after the new bond was made, so it keeps it. */
+    @Test
+    fun `a retry keeps the bond it has`() = runTest(testDispatcher) {
+        enterPairingProgress()
+
+        sut.connectWhenBonded(device.address, "PairWizardRetry", freshBond = false)
+
+        verify(adapter, never()).removeBond(any())
+        verify(bleComm).connect("PairWizardRetry", device.address)
+    }
+
+    @Test
+    fun `a bond that cannot be removed does not stop the pairing`() = runTest(testDispatcher) {
+        enterPairingProgress()
+        // setUp: BONDED for ever, as a transport that cannot remove a bond
+
+        sut.connectWhenBonded(device.address, "PairWizard", freshBond = true)
+
+        verify(adapter).removeBond(device.address)
+        verify(bleComm).connect("PairWizard", device.address)
+    }
+
+    @Test
+    fun `selecting a pump removes its old bond`() {
+        sut.selectDevice(device)
+
+        verify(adapter, timeout(2_000)).removeBond(device.address)
+    }
+
     // ---- pairing state machine (onPairingStateChanged) ------------------------------------------
 
     @Test
@@ -376,5 +489,11 @@ internal class DanaRSPairWizardViewModelTest {
         runCurrent()
         pairingStateFlow.value = PairingState(step = step, errorMessage = message)
         runCurrent()
+    }
+
+    private companion object {
+
+        /** The work on `Dispatchers.IO` stops at its next wait, which is at most 0.5 s away. */
+        const val STOP_TIMEOUT_MS = 5_000L
     }
 }

@@ -30,22 +30,24 @@ import kotlin.time.Duration.Companion.minutes
  * desktop and was entered on neither. Shared code with a single platform-specific caller looks
  * finished and is not; that is the shape this class exists to remove.
  *
- * What it cost, concretely: [BooleanKey.AlertMissedBgReading] is drawn and searchable on every
- * platform, and off Android it did nothing, so a follower whose CGM stopped was never told. The
+ * What it cost, concretely: the old missed BG readings switch (`AlertMissedBgReading`) was drawn and
+ * searchable on every platform, and off Android it did nothing, so a follower whose CGM stopped was never told. The
  * local database also grew without bound, because nothing trimmed it.
  *
  * ## What is here and what is not
  *
- * Only the platform-neutral work. `KeepAliveWorker` keeps the rest, and it belongs there: the
- * WorkManager self-rescheduling, the worker-database telemetry, and the pump and APS checks, which
- * are gated on `config.APS` and so are no-ops on the two shells that hardcode it false.
+ * Only the housekeeping. The pump and APS checks are in [KeepAliveRunner], which runs this class as
+ * part of its pass. The WorkManager schedule and the worker-database telemetry stay in
+ * `KeepAliveWorker`.
  *
  * ## Who drives it
  *
  * The trigger stays per platform, because that part genuinely differs: Android has WorkManager and a
- * wake lock, and the other two do not. Android calls [runOnce] from `KeepAliveWorker` on its existing
- * schedule; iOS and desktop call [start] and get a coroutine ticker. What must NOT differ again is
- * the work itself, which is why it is one method rather than three call sites.
+ * wake lock, and the other two do not. Android runs [KeepAliveRunner] from `KeepAliveWorker` on its
+ * existing schedule; iOS and desktop, both followers today, call [start] and get a coroutine ticker.
+ * A shell that runs [KeepAliveRunner] must not also call [start], or the housekeeping runs twice.
+ * What must NOT differ again is the work itself, which is why it is one method rather than three
+ * call sites.
  */
 @SingleIn(AppScope::class)
 @Inject
@@ -64,7 +66,7 @@ class PeriodicMaintenance(
      */
     suspend fun runOnce() {
         localAlertUtils.shortenSnoozeInterval()
-        localAlertUtils.checkStaleBGAlert()
+        // The missed readings check is not polled any more: it is a booked BG alert (BgAlarms, step 2b)
         maintenance.deleteLogs(KEEP_LOG_FILES)
         cleanupDatabase()
     }

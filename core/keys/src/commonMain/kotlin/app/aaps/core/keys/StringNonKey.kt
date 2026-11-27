@@ -77,6 +77,9 @@ enum class StringNonKey(
     ComposeGraphConfig("compose_graphconfig", ""),
     // The tab the Statistics screen opens on: the last one used (per-device UI state, not a user-facing preference)
     StatsTab(key = "stats_tab", defaultValue = "", exportable = false),
+    // The last searches made in the overview search bar, newest first, as a JSON array of strings.
+    // Per-device UI state like [StatsTab]: not exported and not synced, so a shared backup does not carry it.
+    SearchHistory(key = "search_history", defaultValue = "[]", exportable = false),
 
     // Synthetic mirror of the active plugin per single-select category (value = plugin pluginId, defaults to
     // javaClass.simpleName). Bidirectional for APS/SENSITIVITY/SMOOTHING/CALIBRATION (a client may switch the
@@ -90,7 +93,9 @@ enum class StringNonKey(
     ActivePluginPump("active_plugin_pump", "", exportable = false),
     ActivePluginBgSource("active_plugin_bgsource", "", exportable = false),
 
-    NotificationReaderPackages(key = "notification_reader_packages", defaultValue = ""),
+    // The CGM app catalog fetched from the versions branch, kept while it is newer than the bundled one. Downloaded
+    // data, not a setting, so not exportable: another phone fetches its own.
+    CgmAppCatalog(key = "cgm_app_catalog", defaultValue = "", exportable = false),
     NotificationReaderDedupState(key = "notification_reader_dedup_state", defaultValue = ""),
 
     // Google Drive settings (internal, no preferences UI)
@@ -122,5 +127,33 @@ enum class StringNonKey(
     // Nightscout address it belongs to: with another address it is not used.
     NsClientControlMasterSigningKey(key = "nsclient_control_master_signing_key", defaultValue = "", exportable = false),
     NsClientControlMasterSigningKeyUrl(key = "nsclient_control_master_signing_key_url", defaultValue = "", exportable = false),
+    // The alerts the user silenced, and until when (Alerts). The key keeps its first name. Kept so a restart does not ring them before
+    // the silence ends. Not exportable: the alerts belong to this install and its pump.
+    AlertSilences(key = "pump_alert_silences", defaultValue = "[]", exportable = false),
+    // What the user chose for each kind of alert on this phone (Alerts): Silent or Off by kind id, Ring is not stored.
+    // Exported with this phone's settings; not synced, because each phone decides whether it rings.
+    AlertChoices(key = "alert_choices", defaultValue = "{}", exportable = true),
+    // The alert kinds paused on this phone (Alerts.pause), kind id to the end of the pause. Not exportable and not
+    // synced: a pause belongs to this phone and this moment.
+    AlertPauses(key = "alert_pauses", defaultValue = "{}", exportable = false),
+    // The sound the user chose for each kind of alert on this phone (Alerts.setSound), by kind id. Exported with this
+    // phone's settings; not synced, because each phone decides how it rings.
+    AlertSounds(key = "alert_sounds", defaultValue = "{}", exportable = true),
+    // The BG alarm silences given for every phone that hold now (SharedSilence, step 2f), a JSON list. The master
+    // writes it and sends it in its hot status doc; a client keeps the master's copy. Not exported: it belongs to
+    // this moment.
+    AlertSharedSilences(key = "alert_shared_silences", defaultValue = "[]", exportable = false),
+    // The alerts booked to ring at a time (Alerts.schedule), so one booked before the process ended still rings. Not
+    // exportable: a booking belongs to this phone and this moment.
+    AlertBookings(key = "alert_bookings", defaultValue = "[]", exportable = false),
+    // The user's own BG rules (BgAlarmRules), a JSON list. One list for every phone, so a silence given everywhere is
+    // for the same alarm (step 2f): set on the master or by an Admin client (Bidirectional, the master decides last
+    // writer wins) and synced to every phone; exported with the master's settings. Empty: never set, so the default
+    // rules (`BgAlarmRules.DEFAULT`, decided 2026-11-26); "[]" is a list the user emptied, which stays empty.
+    BgAlarmRules(key = "bg_alarm_rules", defaultValue = "", exportable = true, sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)),
+    // The optional permissions the user declined with "Not now" on this phone (PermissionGroup.optional), the
+    // permission names one per line. Such a one no longer opens the permissions sheet by itself. Not exportable and not
+    // synced: a permission belongs to this phone.
+    PermissionsDeclined(key = "permissions_declined", defaultValue = "", exportable = false),
 
 }

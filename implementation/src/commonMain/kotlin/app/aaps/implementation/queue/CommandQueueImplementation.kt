@@ -14,6 +14,8 @@ import app.aaps.core.data.time.T
 import app.aaps.core.data.ue.Action
 import app.aaps.core.data.ue.Sources
 import app.aaps.core.interfaces.InterfacesStrings
+import app.aaps.core.interfaces.alerts.Alerts
+import app.aaps.core.interfaces.alerts.CoreAlert
 import app.aaps.core.interfaces.alerts.LocalAlertUtils
 import app.aaps.core.interfaces.concurrent.AapsLock
 import app.aaps.core.interfaces.concurrent.aapsIoDispatcher
@@ -55,6 +57,7 @@ import app.aaps.core.interfaces.utils.Round
 import app.aaps.core.interfaces.utils.fabric.FabricPrivacy
 import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.core.keys.interfaces.TextRef
+import app.aaps.core.keys.interfaces.TextRef.Companion.withArgs
 import app.aaps.core.objects.constraints.ConstraintObject
 import app.aaps.core.objects.extensions.getCustomizedName
 import app.aaps.core.objects.profile.ProfileSealed
@@ -130,12 +133,14 @@ class CommandQueueImplementation(
     private val localAlertUtils: () -> LocalAlertUtils,
     private val smsCommunicator: () -> SmsCommunicator,
     private val commandExecutor: () -> CommandExecutor,
-    // Plain CoroutineScope, not @ApplicationScope: that qualifier is javax and cannot appear in
-    // commonMain. AppCoroutineBindings.unqualifiedAppScope binds the very same scope without it.
+    // Plain CoroutineScope, the same object as @ApplicationScope:
+    // AppCoroutineBindings.unqualifiedAppScope binds the very same scope without it.
     private val appScope: CoroutineScope,
     private val bolusProgressData: BolusProgressData,
     private val smbPause: SmbPause,
-    private val uiInteraction: () -> UiInteraction
+    private val uiInteraction: () -> UiInteraction,
+    // A provider, as UiInteraction: the alert core reaches the active pump
+    private val alerts: () -> Alerts
 ) : CommandQueue {
 
     private val queue = ArrayDeque<Command>()
@@ -212,11 +217,11 @@ class CommandQueueImplementation(
             val active = persistenceLayer.getEffectiveProfileSwitchActiveAt(dateUtil.now())
             val alreadyEffective = active != null && active.originalPsId != null && active.originalPsId == it.id
             if (alreadyEffective && activePlugin.activePump.isThisProfileSet(ProfileSealed.PS(it, activePlugin))) {
-                aapsLogger.debug(LTag.PROFILE, "Skipping onProfileChanged: active EPS id=${active?.id} already represents PS id=${it.id} and the pump has it")
+                aapsLogger.debug(LTag.PROFILE, "Skipping onProfileChanged: active EPS id=${active.id} already represents PS id=${it.id} and the pump has it")
                 return@let
             }
             if (alreadyEffective)
-                aapsLogger.debug(LTag.PROFILE, "onProfileChanged: active EPS id=${active?.id} represents PS id=${it.id}, but the pump has another basal. Setting it again")
+                aapsLogger.debug(LTag.PROFILE, "onProfileChanged: active EPS id=${active.id} represents PS id=${it.id}, but the pump has another basal. Setting it again")
             // Bound the pump round-trip. setProfile() awaits the completion of a CommandSetProfile; if
             // that is never completed the await never returns, and because the collector processes
             // emissions sequentially that single hang would block every future ProfileSwitch. On
@@ -243,6 +248,8 @@ class CommandQueueImplementation(
                 val nonCustomized = requested.convertToNonCustomizedProfile(dateUtil)
                 // The basal the pump really gives: it can round the rates to its own step (#2454).
                 val report = deliveredBasalBlocks(requested.insulinConcentration(), asked = nonCustomized.basalBlocks)
+                // A write the pump reports as close to the profile ends an earlier "far from the profile"
+                if (report != BasalReport.Rejected) CoreAlert.BASAL_FAR_FROM_PROFILE.resolve(alerts())
                 val basalBlocks = (report as? BasalReport.Given)?.blocks ?: nonCustomized.basalBlocks
                 // One notice for a real write that is not internal (a Scene reverting its own ProfileSwitch, #4959).
                 // A write the pump did not need (enacted == false) stays silent, and a rejected report has its alarm.
@@ -253,7 +260,7 @@ class CommandQueueImplementation(
                     notifyProfileSet(asked = nonCustomized.basalBlocks, given = basalBlocks)
                 // A PS that is already effective only had to be set in the pump again. It gets no second EPS,
                 // unless this pump gives another basal than the EPS holds, e.g. a new pump with another step.
-                if (alreadyEffective && active?.basalBlocks == basalBlocks) return@let
+                if (alreadyEffective && active.basalBlocks == basalBlocks) return@let
                 val eps = EPS(
                     timestamp = dateUtil.now(),
                     basalBlocks = basalBlocks,
@@ -276,6 +283,7 @@ class CommandQueueImplementation(
                 // is in the pump and the old program runs: the basal is wrong, and only the user can stop it. KeepAlive
                 // tries the write again about every 5 minutes, so this comes back until the write succeeds.
                 uiInteraction().runAlarm(
+                    UiInteraction.KEY_INSULIN_CHANGE_FAILED,
                     rh.gs(ImplementationStrings.concentration_change_failed),
                     rh.gs(ImplementationStrings.concentration_change_failed_title),
                     AlarmSound.BOLUS_ERROR
@@ -284,19 +292,15 @@ class CommandQueueImplementation(
     }
 
     /**
-     * Central profile-set notification lifecycle, unified across every pump driver (drivers now only return a
-     * [PumpEnactResult]; none post profile-set notifications themselves). `internal` so it can be unit-tested.
+     * Central profile-set alert, the same for every pump driver (drivers only return a [PumpEnactResult]; none raise
+     * profile-set alerts themselves). `internal` so it can be unit-tested.
      *
-     *  - failure (timeout `result == null`, or `!success`): post the persistent [NotificationId.FAILED_UPDATE_PROFILE]
-     *    "wrong basal until fixed" card, rung via [AlarmSound.BOLUS_ERROR]; the driver's `comment` supplies
-     *    the reason (a timeout has none). Deliberately NOT a full-screen `runAlarm` — a wrong base profile is serious
-     *    but persistent, so a dismissible alarm-notification is the right weight (a failed TBR is even quieter,
-     *    surfaced only in the loop status).
-     *  - success: clear any stale FAILED_UPDATE_PROFILE. The "Basal profile in pump updated" confirmation follows from
-     *    [notifyProfileSet], once the basal the pump gives is known, so it is one notice.
-     *
-     * Dismissing FAILED_UPDATE_PROFILE centrally is safe only because Equil's alarms were migrated off that id to
-     * EQUIL_LOW_BATTERY / PUMP_ERROR.
+     *  - failure (timeout `result == null`, or `!success`): raise [CoreAlert.PROFILE_UPDATE_FAILED], CRITICAL with
+     *    the bolus-error sound, until a write works; the driver's `comment` gives the reason (a timeout has none). A
+     *    wrong basal is serious and lasts, so it rings until it is answered and again after its silence (a failed
+     *    TBR is quieter, shown only in the loop status).
+     *  - success: it ends. The "Basal profile in pump updated" confirmation follows from [notifyProfileSet], once the
+     *    basal the pump gives is known, so it is one notice.
      *
      * @return true when write succeeded (the caller then persists the EffectiveProfileSwitch).
      */
@@ -307,14 +311,11 @@ class CommandQueueImplementation(
         // and raised "Basal profile in pump updated" for a profile the pump never received.
         if (result?.cancelled == true) return false
         if (result == null || !result.success) {
-            notificationManager.post(
-                NotificationId.FAILED_UPDATE_PROFILE,
-                result?.comment?.takeIf { it.isNotBlank() } ?: rh.gs(CoreUiStrings.failed_update_basal_profile),
-                sound = AlarmSound.BOLUS_ERROR
-            )
+            val reason = result?.comment?.takeIf { it.isNotBlank() }?.let { TextRef.Literal(it) } ?: CoreUiStrings.failed_update_basal_profile
+            CoreAlert.PROFILE_UPDATE_FAILED.raiseCondition(alerts(), reason, dateUtil.now(), AlarmSound.BOLUS_ERROR)
             return false
         }
-        notificationManager.dismiss(NotificationId.FAILED_UPDATE_PROFILE)
+        CoreAlert.PROFILE_UPDATE_FAILED.resolve(alerts())
         return true
     }
 
@@ -366,7 +367,9 @@ class CommandQueueImplementation(
                 LTag.PROFILE,
                 "The pump reported a basal far from the profile at $farHour:00 (${blocks.rateInHour(farHour)} instead of ${asked.rateInHour(farHour)} U/h), the profile is kept"
             )
-            notificationManager.post(NotificationId.FAILED_UPDATE_PROFILE, rh.gs(ImplementationStrings.basal_reported_far_from_profile), sound = AlarmSound.BOLUS_ERROR)
+            CoreAlert.BASAL_FAR_FROM_PROFILE.raiseCondition(
+                alerts(), ImplementationStrings.basal_reported_far_from_profile, dateUtil.now(), AlarmSound.BOLUS_ERROR
+            )
             return BasalReport.Rejected
         }
         return BasalReport.Given(blocks)
@@ -526,14 +529,14 @@ class CommandQueueImplementation(
             if (withTimeoutOrNull(STUCK_COMMAND_ALARM) { command.completion.await() } != null) return@launch
             aapsLogger.error(LTag.PUMPQUEUE, "Command still running after $STUCK_COMMAND_ALARM: ${command.log()}")
             fabricPrivacy.logCustom("CommandStuckAlarm")
-            notificationManager.post(
-                NotificationId.PUMP_DRIVER_NOT_RESPONDING,
-                rh.gs(CoreUiStrings.pump_driver_not_responding, command.status(), STUCK_COMMAND_ALARM.inWholeMinutes.toInt()),
-                sound = AlarmSound.ALARM
+            CoreAlert.PUMP_DRIVER_NOT_RESPONDING.raiseCondition(
+                alerts(),
+                CoreUiStrings.pump_driver_not_responding.withArgs(command.status(), STUCK_COMMAND_ALARM.inWholeMinutes.toInt()),
+                dateUtil.now()
             )
             command.completion.await()
             aapsLogger.debug(LTag.PUMPQUEUE, "Stuck command finished: ${command.log()}")
-            notificationManager.dismiss(NotificationId.PUMP_DRIVER_NOT_RESPONDING)
+            CoreAlert.PUMP_DRIVER_NOT_RESPONDING.resolve(alerts())
         }
     }
 
@@ -741,7 +744,7 @@ class CommandQueueImplementation(
                 aapsLogger.error(LTag.PUMPQUEUE, "Failed to store carbs after bolus", e)
                 // The bolus succeeded but the carbs weren't persisted, so COB/IOB would be wrong and the
                 // loss was previously silent (log-only). Alert the user so they can re-enter the carbs.
-                notificationManager.post(NotificationId.CARBS_STORE_FAILED, CoreUiStrings.carbs_not_saved_after_bolus)
+                CoreAlert.CARBS_NOT_SAVED.raiseEvent(alerts(), CoreUiStrings.carbs_not_saved_after_bolus, dateUtil.now())
             }
         }
         return result

@@ -10,6 +10,7 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.ObjCObjectVar
 import kotlinx.cinterop.alloc
@@ -52,7 +53,7 @@ import platform.Foundation.NSURL
  * main looper. `play` may be called from any thread - the notification registry calls it while
  * holding its own lock - so nothing here touches [player] outside that dispatcher.
  */
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 @ContributesBinding(AppScope::class)
 @SingleIn(AppScope::class)
 @Inject
@@ -68,14 +69,14 @@ class IosAlarmSoundPlayer(
     private var currentOwner: String? = null
     private var rampJob: Job? = null
 
-    /**
-     * [postedAtElapsedRealtime] is ignored: it exists so Android can wait out a notification's own
-     * one-shot channel sound before starting the loop, and an iOS notification posted by
-     * `IosSystemNotificationPlatform` deliberately carries no sound.
-     */
-    override fun play(sound: AlarmSound, ownerTag: String, postedAtElapsedRealtime: Long) {
-        scope.launch { doPlay(sound, ownerTag) }
+    // [ringtoneUri] is never set on iOS: an app can play only the sounds it ships, so the user picks only those
+    override fun play(sound: AlarmSound, ownerTag: String, breakThroughDnd: Boolean, ringtoneUri: String?) {
+        scope.launch { doPlay(sound, ownerTag, breakThroughDnd) }
     }
+
+    // iOS cannot vibrate without a sound from the background, so Vibrate is not offered here (`IosAlertPlatform`). A
+    // Vibrate that came with the settings of another phone rings: an alarm must never be quiet for a choice it cannot keep.
+    override fun vibrate(sound: AlarmSound, ownerTag: String) = play(sound, ownerTag, breakThroughDnd = false)
 
     override fun stop(ownerTag: String) {
         scope.launch {
@@ -86,13 +87,13 @@ class IosAlarmSoundPlayer(
         }
     }
 
-    private fun doPlay(sound: AlarmSound, ownerTag: String) {
+    private fun doPlay(sound: AlarmSound, ownerTag: String, breakThroughDnd: Boolean) {
         doStop()
         val url = urlFor(sound) ?: run {
             aapsLogger.error(LTag.NOTIFICATION, "Alarm sound ${fileName(sound)} is not in the app bundle, cannot alarm")
             return
         }
-        activateSession()
+        activateSession(breakThroughDnd)
 
         val created = memScoped {
             val error = alloc<ObjCObjectVar<NSError?>>()
@@ -152,7 +153,7 @@ class IosAlarmSoundPlayer(
      * Passing null for the error pointer here cost real time once: the player refused to start and
      * there was nothing to say why, because every failure had been thrown away at the call site.
      */
-    private fun activateSession() = memScoped {
+    private fun activateSession(breakThroughDnd: Boolean) = memScoped {
         val session = AVAudioSession.sharedInstance()
         val error = alloc<ObjCObjectVar<NSError?>>()
         // The category is the only lever there is: iOS publishes no way to read the Ring/Silent
@@ -167,7 +168,8 @@ class IosAlarmSoundPlayer(
         // Worth knowing about the off case: SoloAmbient is also silenced when the screen locks, so
         // the alarm can stop there too. That has no counterpart on Android's notification stream. It
         // is the price of respecting the switch at all, and it only reaches a user who asked for it.
-        val override = preferences.get(BooleanKey.AlertOverrideDoNotDisturb)
+        // Urgent low plays through the silent switch whatever the setting says
+        val override = breakThroughDnd || preferences.get(BooleanKey.AlertOverrideDoNotDisturb)
         val category = if (override) AVAudioSessionCategoryPlayback else AVAudioSessionCategorySoloAmbient
         if (!session.setCategory(category, error = error.ptr)) {
             aapsLogger.error(LTag.NOTIFICATION, "Cannot set the audio category $category: ${error.value?.localizedDescription}")

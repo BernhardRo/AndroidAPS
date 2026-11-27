@@ -3,13 +3,15 @@ package app.aaps.implementation.androidNotification
 import android.app.NotificationManager
 import android.content.Context
 import android.media.AudioAttributes
-import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
-import androidx.annotation.RawRes
+import android.os.VibrationAttributes
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.notifications.AlarmSound
@@ -37,7 +39,8 @@ import kotlin.math.pow
  * though [play] may be invoked from any thread (e.g. NotificationManagerImpl's IO dispatcher).
  *
  * Do Not Disturb: with the override off the sound is not started while Do Not Disturb is on, see
- * [DoNotDisturbRule]. With it on the alarm stream is used, and the Do Not Disturb profile decides.
+ * [DoNotDisturbRule]; the alarm vibrates until it is stopped instead. With it on the alarm stream is used,
+ * and the Do Not Disturb profile decides.
  */
 @ContributesBinding(AppScope::class)
 @SingleIn(AppScope::class)
@@ -58,47 +61,84 @@ class AlarmSoundPlayerImpl(
     private var currentOwner: String? = null
     private var currentVolumeLevel = 0
 
-    // Stable reference so a deferred start can be cancelled by doStop() during the channel-sound guard.
-    private val startRunnable = Runnable { startMediaPlayer() }
+    /** Whether the sound playing now breaks through Do Not Disturb (urgent low) whatever the override says. */
+    private var currentBreaksThrough = false
 
-    override fun play(sound: AlarmSound, ownerTag: String, postedAtElapsedRealtime: Long) {
-        handler.post { doPlay(sound, ownerTag, postedAtElapsedRealtime) }
+    /** The phone ringtone the user chose for the sound playing now, or null: the bundled [currentSound]. */
+    private var currentRingtone: String? = null
+
+    /** Whether the alarm vibrates now instead of playing ([vibrate]). */
+    private var vibrating = false
+
+    override fun play(sound: AlarmSound, ownerTag: String, breakThroughDnd: Boolean, ringtoneUri: String?) {
+        handler.post { doPlay(sound, ownerTag, breakThroughDnd, ringtoneUri) }
+    }
+
+    override fun vibrate(sound: AlarmSound, ownerTag: String) {
+        handler.post { doVibrate(sound, ownerTag) }
     }
 
     override fun stop(ownerTag: String) {
         handler.post { if (currentOwner == ownerTag) doStop() }
     }
 
-    private fun doPlay(sound: AlarmSound, ownerTag: String, postedAtElapsedRealtime: Long) {
-        // Idempotent: a re-request of the exact same sound by the same owner while it's already
-        // playing is a no-op. This lets ErrorActivity call play() when it foregrounds on top of an
-        // alarm that AlarmNotificationManager already started (same OWNER_FULLSCREEN) without a
-        // stop/restart audio glitch.
-        if (player != null && currentOwner == ownerTag && currentSound == sound) return
-
+    /**
+     * The alarm vibrates in a loop and makes no sound, until [stop]: the user's Vibrate choice. On the alarm usage, so
+     * it comes through Do Not Disturb as far as the Do Not Disturb profile lets alarms through, as a sound would.
+     */
+    private fun doVibrate(sound: AlarmSound, ownerTag: String) {
+        if (vibrating && currentOwner == ownerTag) return
         doStop()
         currentSound = sound
         currentOwner = ownerTag
-
-        // Only the full-screen path passes postedAt > 0 (it has an accompanying channel one-shot to
-        // wait out). For the internal path postedAt == 0, so skip the blocking MediaMetadataRetriever
-        // probe entirely and start immediately.
-        val deferralMs =
-            if (postedAtElapsedRealtime > 0L) {
-                val soundDurationMs = probeSoundDurationMs(sound.rawRes)
-                (soundDurationMs - (SystemClock.elapsedRealtime() - postedAtElapsedRealtime)).coerceAtLeast(0L)
-            } else 0L
-
-        if (deferralMs > 0) {
-            aapsLogger.debug(LTag.CORE, "AlarmSoundPlayer: deferring start by ${deferralMs}ms (channel sound still playing)")
-            handler.postDelayed(startRunnable, deferralMs)
-        } else {
-            startMediaPlayer()
+        if (!startVibrationLoop()) {
+            // Not offered then, but a choice may come with settings from another phone: it rings rather than stay quiet
+            aapsLogger.error(LTag.CORE, "AlarmSoundPlayer: the phone cannot vibrate, the alarm plays its sound")
+            doPlay(sound, ownerTag, breakThroughDnd = false, ringtoneUri = null)
         }
     }
 
+    /** The vibration of an alarm, in a loop until [stop], on the alarm usage. False on a phone that cannot vibrate. */
+    private fun startVibrationLoop(): Boolean {
+        val vibrator = vibrator(context)
+        if (!vibrator.hasVibrator()) return false
+        val loop = VibrationEffect.createWaveform(VIBRATION_LOOP, 0)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+            vibrator.vibrate(loop, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_ALARM))
+        else vibrateBeforeAndroid13(vibrator, loop)
+        vibrating = true
+        return true
+    }
+
+    // Android 12 has no VibrationAttributes: the usage comes with AudioAttributes, as the API asked then
+    @Suppress("DEPRECATION")
+    private fun vibrateBeforeAndroid13(vibrator: Vibrator, effect: VibrationEffect) =
+        vibrator.vibrate(effect, AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build())
+
+    private fun doPlay(sound: AlarmSound, ownerTag: String, breakThroughDnd: Boolean, ringtoneUri: String?) {
+        // Idempotent: a re-request of the exact same sound by the same owner while it is already playing - or vibrating
+        // in its place in Do Not Disturb - is a no-op, so the registry offering the same alarm again does not restart
+        // the volume ramp or the vibration.
+        if ((player != null || vibrating) && currentOwner == ownerTag && currentSound == sound && currentBreaksThrough == breakThroughDnd &&
+            currentRingtone == ringtoneUri
+        ) return
+
+        doStop()
+        currentSound = sound
+        currentBreaksThrough = breakThroughDnd
+        currentOwner = ownerTag
+        currentRingtone = ringtoneUri
+        // Started at once. The start used to be deferred past the one-shot sound of the notification channel that
+        // the deleted `postFullScreenAlarm` posted alongside it; the card that carries an alarm now is silent, so
+        // there is nothing to wait out and no reason for the blocking MediaMetadataRetriever probe.
+        startMediaPlayer()
+    }
+
     private fun doStop() {
-        handler.removeCallbacks(startRunnable)
+        if (vibrating) {
+            vibrator(context).cancel()
+            vibrating = false
+        }
         handler.removeCallbacks(volumeRamp)
         player?.let { mp ->
             try {
@@ -115,9 +155,13 @@ class AlarmSoundPlayerImpl(
     private fun startMediaPlayer() {
         val soundRes = currentSound?.rawRes ?: return
 
-        val overrideDnd = preferences.get(BooleanKey.AlertOverrideDoNotDisturb)
+        // Urgent low rings in Do Not Disturb whatever the user's override says; it plays on the alarm stream for that
+        val overrideDnd = currentBreaksThrough || preferences.get(BooleanKey.AlertOverrideDoNotDisturb)
         if (DoNotDisturbRule.staysQuiet(overrideDnd, notificationManager.currentInterruptionFilter)) {
-            aapsLogger.debug(LTag.CORE, "AlarmSoundPlayer: Do Not Disturb is on and the override is off, the alarm stays quiet")
+            // No sound then (decided 2026-10-30), but it vibrates until it is answered, as an alarm set to Vibrate. It
+            // used to stay still after the one buzz of its card, 4 s, easily missed at night (Pixel, 2026-11-27).
+            aapsLogger.debug(LTag.CORE, "AlarmSoundPlayer: Do Not Disturb is on and the override is off, the alarm only vibrates")
+            startVibrationLoop()
             return
         }
         val audioAttrs = AudioAttributes.Builder()
@@ -132,13 +176,29 @@ class AlarmSoundPlayerImpl(
                 MediaPlayer()
             }
             mp.setAudioAttributes(audioAttrs)
-            val afd = context.resources.openRawResourceFd(soundRes) ?: run {
-                aapsLogger.error(LTag.CORE, "AlarmSoundPlayer: unable to open raw resource $soundRes")
-                mp.release()
-                return
+            // The user's ringtone, else the bundled sound. A ringtone that cannot be opened falls back at once: it
+            // must never leave the alarm silent
+            val ringtone = currentRingtone?.let { uri ->
+                try {
+                    mp.setDataSource(context, Uri.parse(uri))
+                    true
+                } catch (e: Exception) {
+                    aapsLogger.error(LTag.CORE, "AlarmSoundPlayer: ringtone $uri cannot be played, the bundled sound plays", e)
+                    currentRingtone = null
+                    mp.reset()
+                    mp.setAudioAttributes(audioAttrs)
+                    false
+                }
+            } == true
+            if (!ringtone) {
+                val afd = context.resources.openRawResourceFd(soundRes) ?: run {
+                    aapsLogger.error(LTag.CORE, "AlarmSoundPlayer: unable to open raw resource $soundRes")
+                    mp.release()
+                    return
+                }
+                mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                afd.close()
             }
-            mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-            afd.close()
             mp.isLooping = true
             if (preferences.get(BooleanKey.AlertIncreaseVolume)) {
                 currentVolumeLevel = 0
@@ -153,9 +213,17 @@ class AlarmSoundPlayerImpl(
                 if (player === prepared) prepared.start()
                 else prepared.release()
             }
-            mp.setOnErrorListener { _, what, extra ->
+            mp.setOnErrorListener { failed, what, extra ->
                 aapsLogger.error(LTag.CORE, "AlarmSoundPlayer: MediaPlayer error what=$what extra=$extra")
-                doStop()
+                if (player === failed && currentRingtone != null) {
+                    // The ringtone failed while preparing or playing: the bundled sound plays instead, same owner
+                    aapsLogger.error(LTag.CORE, "AlarmSoundPlayer: ringtone failed, the bundled sound plays")
+                    handler.removeCallbacks(volumeRamp)
+                    player = null
+                    failed.release()
+                    currentRingtone = null
+                    startMediaPlayer()
+                } else doStop()
                 true
             }
             // Assign before prepareAsync so doStop() can find it during the Preparing state.
@@ -166,28 +234,6 @@ class AlarmSoundPlayerImpl(
         }
     }
 
-    /**
-     * Reads the duration of a raw audio resource via [MediaMetadataRetriever] without decoding the
-     * audio. Returns 0 if missing/unreadable; callers treat 0 as "no deferral".
-     */
-    private fun probeSoundDurationMs(@RawRes soundId: Int): Long {
-        if (soundId == 0) return 0L
-        val retriever = MediaMetadataRetriever()
-        return try {
-            val afd = context.resources.openRawResourceFd(soundId) ?: return 0L
-            try {
-                retriever.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-            } finally {
-                afd.close()
-            }
-            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-        } catch (ex: Exception) {
-            aapsLogger.error(LTag.CORE, "AlarmSoundPlayer: probeSoundDurationMs failed for soundId=$soundId", ex)
-            0L
-        } finally {
-            retriever.release()
-        }
-    }
 
     private val volumeRamp = object : Runnable {
         override fun run() {
@@ -207,6 +253,9 @@ class AlarmSoundPlayerImpl(
 
     private companion object {
 
+        /** Off, on, off, on... in ms, repeated from the start: as long on as off, like a phone set to vibrate. */
+        val VIBRATION_LOOP = longArrayOf(0, 1000, 1000)
+
         const val VOLUME_INCREASE_STEPS = 40
         const val VOLUME_INCREASE_INITIAL_SILENT_TIME_MILLIS = 3_000L
         const val VOLUME_INCREASE_BASE_DELAY_MILLIS = 15_000L
@@ -214,3 +263,6 @@ class AlarmSoundPlayerImpl(
         const val VOLUME_INCREASE_DELAY_DECREMENT_EXPONENT = 2.0
     }
 }
+
+/** The phone's vibrator. A phone without one (a tablet) reports it with `hasVibrator()`. */
+internal fun vibrator(context: Context): Vibrator = context.getSystemService(VibratorManager::class.java).defaultVibrator

@@ -71,9 +71,7 @@ enum class BooleanKey(
         sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)
     ),
 
-    AlertMissedBgReading("enable_missed_bg_readings", false, KeysStrings.pref_title_alert_missed_bg_reading),
     AlertPumpUnreachable("enable_pump_unreachable_alert", true, KeysStrings.pref_title_alert_pump_unreachable),
-    AlertCarbsRequired("enable_carbs_required_alert_local", true, KeysStrings.pref_title_alert_carbs_required),
     // Android only: it decides whether AAPS raises an OS notification at all. iOS gives an app no say
     // in that - the user grants or denies notifications in Settings - so there is nothing here for
     // the switch to do, and a switch that does nothing reads as a promise.
@@ -236,7 +234,6 @@ enum class BooleanKey(
     NsClientAcceptTherapyEvent("ns_receive_therapy_events", false, KeysStrings.pref_title_ns_receive_therapy_event, KeysStrings.pref_summary_ns_receive_therapy_event, showInNsClientMode = false, hideParentScreenIfHidden = true, defaultedByHardenedMode = true),
     NsClientAcceptRunningMode("ns_receive_running_mode", false, KeysStrings.pref_title_ns_receive_running_mode, KeysStrings.pref_summary_ns_receive_running_mode, showInNsClientMode = false, hideParentScreenIfHidden = true, defaultedByHardenedMode = true),
     NsClientAcceptTbrEb("ns_receive_tbr_eb", false, KeysStrings.pref_title_ns_receive_tbr_eb, KeysStrings.pref_summary_ns_receive_tbr_eb, showInNsClientMode = false, engineeringModeOnly = true, defaultedByHardenedMode = true),
-    NsClientNotificationsFromAlarms("ns_alarms", false, KeysStrings.pref_title_ns_notifications_from_alarms, calculatedDefaultValue = true),
     NsClientNotificationsFromAnnouncements("ns_announcements", false, KeysStrings.pref_title_ns_notifications_from_announcements, calculatedDefaultValue = true),
     NsClientUseCellular("ns_cellular", true, KeysStrings.pref_title_ns_use_cellular),
     // Android only. `ReceiverDelegate` reads this in shared code, but the clause it sits in also

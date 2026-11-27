@@ -110,8 +110,8 @@ class PluginPermissionsImpl(
         //
         // setAlarmClock() is not permission-free: from targetSdk 31 it needs SCHEDULE_EXACT_ALARM unless
         // AAPS is excluded from battery optimization. (The SDK javadoc leaves that exemption out; the
-        // system service applies it to setAlarmClock exactly as to setExact.) Reminders
-        // (ReminderSchedulerImpl) use it too. Android 14 and later deny the permission by default on a
+        // system service applies it to setAlarmClock exactly as to setExact.) Booked alerts
+        // (AndroidAlertPlatform.book: reminders, "time to eat") use it too. Android 14 and later deny the permission by default on a
         // new install, so it is asked for here, for everyone - it used to be asked for only while the
         // EOPatch plugin was enabled. isPermissionMissing checks canScheduleExactAlarms(), which is true
         // with either the permission or the exemption, so a user who excluded AAPS from battery
@@ -122,6 +122,18 @@ class PluginPermissionsImpl(
                 rationaleTitle = TextRef.AndroidRes(R.string.permission_schedule_exact_alarm_title),
                 rationaleDescription = TextRef.AndroidRes(R.string.permission_schedule_exact_alarm_description),
                 special = true,
+            )
+        )
+        // Recommended, not needed (decided 2026-11-26): with it an alarm screen comes up over the app in use
+        // (`AndroidAlertPlatform.showAlarmScreen`, #5338); without it the alarm still rings and its screen waits for
+        // AAPS to be opened. The user may decline it, and finds it again under Alerts.
+        add(
+            PermissionGroup(
+                permissions = listOf(Manifest.permission.SYSTEM_ALERT_WINDOW),
+                rationaleTitle = TextRef.AndroidRes(R.string.permission_overlay_title),
+                rationaleDescription = TextRef.AndroidRes(R.string.permission_overlay_description),
+                special = true,
+                optional = true,
             )
         )
     }
@@ -143,6 +155,10 @@ class PluginPermissionsImpl(
 
             PERMISSION_NOTIFICATION_LISTENER                         ->
                 !isNotificationListenerEnabled(context)
+
+            // Special app access: granted on Android's own page, never through the permission dialog
+            Manifest.permission.SYSTEM_ALERT_WINDOW                  ->
+                !Settings.canDrawOverlays(context)
 
             else                                                     ->
                 ContextCompat.checkSelfPermission(context, perm) != PackageManager.PERMISSION_GRANTED

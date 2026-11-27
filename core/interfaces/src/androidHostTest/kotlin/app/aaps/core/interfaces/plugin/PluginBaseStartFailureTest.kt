@@ -75,7 +75,14 @@ class PluginBaseStartFailureTest {
             validTo: Long,
             sound: AlarmSound?,
             actions: List<NotificationAction>,
-            validityCheck: (() -> Boolean)?
+            validityCheck: (() -> Boolean)?,
+            alarmTitle: String?,
+            canMute: Boolean,
+            tellWatch: Boolean,
+            breakThroughDnd: Boolean,
+            ringtoneUri: String?,
+            systemText: String?,
+            vibrateOnly: Boolean
         ): NotificationHandle = record(id, text, level, sound)
 
         override fun post(
@@ -119,6 +126,7 @@ class PluginBaseStartFailureTest {
         }
 
         override fun muteAllAlarms() {}
+        override fun clearLeftovers() {}
     }
 
     /**

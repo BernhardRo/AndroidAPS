@@ -45,7 +45,12 @@ class ComboV2PluginErrorLockoutTest {
 
         override fun post(
             id: NotificationId, text: String, level: NotificationLevel, date: Long, validTo: Long, sound: AlarmSound?,
-            actions: List<NotificationAction>, validityCheck: (() -> Boolean)?
+            actions: List<NotificationAction>, validityCheck: (() -> Boolean)?, alarmTitle: String?, canMute: Boolean,
+            tellWatch: Boolean,
+            breakThroughDnd: Boolean,
+            ringtoneUri: String?,
+            systemText: String?,
+            vibrateOnly: Boolean
         ): NotificationHandle = record(id, level, validityCheck)
 
         override fun post(
@@ -60,6 +65,7 @@ class ComboV2PluginErrorLockoutTest {
         override fun dismiss(handle: NotificationHandle) {}
 
         override fun muteAllAlarms() {}
+        override fun clearLeftovers() {}
 
         private fun record(id: NotificationId, level: NotificationLevel, validityCheck: (() -> Boolean)?): NotificationHandle {
             posts += Post(id, level, validityCheck)

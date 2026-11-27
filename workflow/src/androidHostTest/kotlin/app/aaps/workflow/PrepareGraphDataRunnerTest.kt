@@ -1,7 +1,11 @@
 package app.aaps.workflow
 
+import app.aaps.core.data.iob.InMemoryGlucoseValue
 import app.aaps.core.data.model.CA
 import app.aaps.core.data.model.GV
+import app.aaps.core.data.model.SourceSensor
+import app.aaps.core.data.model.TrendArrow
+import app.aaps.core.data.time.SystemTimeZone
 import app.aaps.core.data.time.T
 import app.aaps.core.interfaces.aps.AutosensData
 import app.aaps.core.interfaces.aps.AutosensDataStore
@@ -15,6 +19,7 @@ import app.aaps.core.interfaces.overview.graph.ActivityGraphData
 import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
 import app.aaps.core.interfaces.overview.graph.TimeRange
+import app.aaps.core.interfaces.overview.liveGraphWindowEnd
 import app.aaps.core.interfaces.profiling.Profiler
 import app.aaps.core.interfaces.rx.bus.RxBus
 import app.aaps.core.interfaces.rx.events.EventBucketedDataCreated
@@ -38,6 +43,7 @@ import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import kotlin.test.assertIs
+import kotlin.time.Instant
 
 class PrepareGraphDataRunnerTest : TestBaseWithProfile() {
 
@@ -58,16 +64,16 @@ class PrepareGraphDataRunnerTest : TestBaseWithProfile() {
         PrepareGraphDataRunner(
             aapsLogger, workflowChainData, dateUtil, mockedRxBus, persistenceLayer,
             activePlugin, profileFunction, profileUtil, preferences, profiler, decimalFormatter,
-            TestScope(), autosensDataProvider
+            fabricPrivacy, TestScope(), autosensDataProvider
         )
 
     // The runner asks this between phases; nothing in these tests stops a run part way.
     private suspend fun run() = runner().run(job = "main", generation = 1L, isStopped = { false })
 
-    private fun buildData(bgDataReload: Boolean, emitFinalProgress: Boolean) =
+    private fun buildData(bgDataReload: Boolean, emitFinalProgress: Boolean, liveWindow: Boolean = false, window: OverviewData = overviewData) =
         PrepareGraphData(
             iobCobCalculator = dataIobCob,
-            overviewData = overviewData,
+            overviewData = window,
             cache = cache,
             signals = signals,
             reason = "test",
@@ -75,8 +81,11 @@ class PrepareGraphDataRunnerTest : TestBaseWithProfile() {
             bgDataReload = bgDataReload,
             limitDataToOldestAvailable = false,
             triggeredByNewBG = false,
-            emitFinalProgress = emitFinalProgress
+            emitFinalProgress = emitFinalProgress,
+            liveWindow = liveWindow
         )
+
+    private class Window(override var toTime: Long, override var fromTime: Long, override var endTime: Long) : OverviewData
 
     @BeforeEach
     fun setup() {
@@ -166,6 +175,55 @@ class PrepareGraphDataRunnerTest : TestBaseWithProfile() {
     }
 
     /**
+     * #5662: the loop runs only after a prepare phase that succeeded, and it needs nothing the graph steps
+     * write. An error in a graph step must cost the graph, not the loop run for this glucose reading.
+     */
+    @Test
+    fun `an error in a graph step does not fail the phase`() = runTest {
+        stubSuspendCalls()
+        val error = IllegalStateException("broken readings")
+        whenever(persistenceLayer.getBgReadingsDataFromTimeToTime(any(), any(), any())).thenThrow(error)
+        whenever(workflowChainData.prepareFor(any(), any())).thenReturn(buildData(bgDataReload = false, emitFinalProgress = true))
+
+        val result = run()
+
+        assertIs<WorkOutcome.Success>(result)
+        // The steps after it still ran
+        verify(cache).updateIobGraph(any())
+        verify(signals).emitProgress(eq(ProgressData.DRAW_FINAL), any())
+        verify(fabricPrivacy).logException(error)
+    }
+
+    @Test
+    fun `an error in the IOB graph step does not fail the phase`() = runTest {
+        stubSuspendCalls()
+        val error = IllegalStateException("broken prediction")
+        whenever(dataIobCob.calculateIobArrayForSMB(any(), any(), any(), any())).thenThrow(error)
+        whenever(workflowChainData.prepareFor(any(), any())).thenReturn(buildData(bgDataReload = false, emitFinalProgress = true))
+
+        val result = run()
+
+        assertIs<WorkOutcome.Success>(result)
+        verify(signals).emitProgress(eq(ProgressData.DRAW_FINAL), any())
+        verify(fabricPrivacy).logException(error)
+    }
+
+    /** The loop needs the IOB and COB pass, so an error there must still fail the phase, and the loop must not run. */
+    @Test
+    fun `an error in the IOB and COB pass still fails the phase`() = runTest {
+        stubSuspendCalls()
+        val error = IllegalStateException("broken IOB")
+        whenever(profileFunction.isProfileValid(any())).thenThrow(error)
+        whenever(workflowChainData.prepareFor(any(), any())).thenReturn(buildData(bgDataReload = false, emitFinalProgress = true))
+
+        val thrown = runCatching { run() }.exceptionOrNull()
+
+        assertThat(thrown).isSameInstanceAs(error)
+        // Reported by the executor, which turns the throw into a failed phase
+        verify(fabricPrivacy, never()).logException(any())
+    }
+
+    /**
      * The prepare pass runs before the one that knows the horizon, so it has to leave the horizon
      * alone. When it wrote `endTime = toTime` instead, the future activity stopped at the next full
      * hour while the axis went on to the newest prediction.
@@ -196,6 +254,49 @@ class PrepareGraphDataRunnerTest : TestBaseWithProfile() {
         verify(cache).updateActivityGraph(activity.capture())
         assertThat(activity.lastValue.activityPrediction.last().timestamp).isGreaterThan(toTime)
         assertThat(activity.lastValue.activityPrediction.last().timestamp).isAtMost(horizon)
+    }
+
+    /**
+     * #5614: the first run after the clock passed the window of the run before drew with that old window, so the
+     * newest reading was missing from the graph until the next one. The post pass, which moved the window on, runs
+     * only after the readings are picked.
+     */
+    @Test
+    fun `a live run moves the window on before it picks the readings`() = runTest {
+        stubSuspendCalls()
+        val reading = now - T.mins(1).msecs()
+        // The window of a run more than an hour ago, as its post pass left it
+        val oldToTime = now - T.mins(30).msecs()
+        val window = Window(toTime = oldToTime, fromTime = oldToTime - T.hours(24).msecs(), endTime = oldToTime)
+        val gv = GV(timestamp = reading, value = 150.0, raw = null, noise = null, trendArrow = TrendArrow.FLAT, sourceSensor = SourceSensor.UNKNOWN)
+        whenever(persistenceLayer.getBgReadingsDataFromTimeToTime(any(), any(), any())).thenReturn(listOf(gv))
+        whenever(dataAds.getBucketedDataTableCopy()).thenReturn(mutableListOf(InMemoryGlucoseValue(timestamp = reading, value = 150.0)))
+        whenever(workflowChainData.prepareFor(any(), any())).thenReturn(buildData(bgDataReload = false, emitFinalProgress = false, liveWindow = true, window = window))
+
+        run()
+
+        assertThat(window.toTime).isEqualTo(liveGraphWindowEnd(Instant.fromEpochMilliseconds(now), SystemTimeZone.current()))
+        val readings = argumentCaptor<List<BgDataPoint>>()
+        verify(cache).updateBgReadings(readings.capture())
+        assertThat(readings.lastValue.map { it.timestamp }).containsExactly(reading)
+        val bucketed = argumentCaptor<List<BgDataPoint>>()
+        verify(cache).updateBucketedData(bucketed.capture())
+        assertThat(bucketed.lastValue.map { it.timestamp }).containsExactly(reading)
+    }
+
+    /** The history browser sets its own window, a day in the past: a run must leave it there. */
+    @Test
+    fun `a history run keeps its own window`() = runTest {
+        stubSuspendCalls()
+        val dayBefore = now - T.days(1).msecs()
+        val window = Window(toTime = dayBefore, fromTime = dayBefore - T.hours(24).msecs(), endTime = dayBefore)
+        whenever(workflowChainData.prepareFor(any(), any())).thenReturn(buildData(bgDataReload = false, emitFinalProgress = true, liveWindow = false, window = window))
+
+        run()
+
+        assertThat(window.toTime).isEqualTo(dayBefore)
+        assertThat(window.fromTime).isEqualTo(dayBefore - T.hours(24).msecs())
+        assertThat(window.endTime).isEqualTo(dayBefore)
     }
 
     @Test

@@ -16,6 +16,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
@@ -24,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.core.app.ActivityCompat
@@ -44,6 +47,7 @@ import app.aaps.appshell.navigation.appNavGraph
 import app.aaps.appshell.navigation.handleNotificationAction
 import app.aaps.appshell.navigation.handleQuickLaunchAction
 import app.aaps.appshell.navigation.handleSearchResultClick
+import app.aaps.appshell.navigation.openAlertKinds
 import app.aaps.core.interfaces.bgQualityCheck.BgQualityCheck
 import app.aaps.core.interfaces.clientcontrol.ClientControlActionDispatcher
 import app.aaps.core.interfaces.configuration.Config
@@ -71,7 +75,6 @@ import app.aaps.core.interfaces.queue.CommandQueue
 import app.aaps.core.interfaces.resources.ResourceHelper
 import app.aaps.core.interfaces.rx.bus.RxBus
 import app.aaps.core.interfaces.rx.events.EventShowDialog
-import app.aaps.core.interfaces.source.DexcomBoyda
 import app.aaps.core.interfaces.sync.NsClient
 import app.aaps.core.interfaces.ui.IconsProvider
 import app.aaps.core.interfaces.ui.SnackbarHostPresence
@@ -91,7 +94,7 @@ import app.aaps.core.ui.compose.MetroViewModelFactoryOwner
 import app.aaps.core.ui.compose.navigation.NavigationRequest
 import app.aaps.core.ui.compose.pump.PumpCommunicationStatus
 import app.aaps.core.utils.isRunningRealPumpTest
-import app.aaps.implementation.androidNotification.AlarmNotificationManager
+import app.aaps.implementation.alerts.AndroidAlertPlatform
 import app.aaps.implementation.plugin.PluginPermissionsImpl
 import app.aaps.implementation.protection.BiometricCheck
 import app.aaps.plugins.automation.AutomationRuntime
@@ -113,6 +116,7 @@ import app.aaps.ui.compose.manageSheet.ManageViewModel
 import app.aaps.ui.compose.overview.chips.ChipsViewModel
 import app.aaps.ui.compose.overview.graphs.GraphViewModel
 import app.aaps.ui.compose.overview.statusLights.StatusViewModel
+import app.aaps.ui.compose.alertKinds.openAlarmOverOtherAppsPage
 import app.aaps.ui.compose.permissionsSheet.PermissionsSheet
 import app.aaps.ui.compose.permissionsSheet.PermissionsSideEffect
 import app.aaps.ui.compose.permissionsSheet.PermissionsViewModel
@@ -164,11 +168,10 @@ class ComposeMainActivity : MetroAppCompatActivity() {
     @Inject lateinit var config: Config
     @Inject lateinit var profileUtil: ProfileUtil
     @Inject lateinit var visibilityContext: VisibilityContext
-    @Inject lateinit var dexcomBoyda: DexcomBoyda
     @Inject lateinit var persistenceLayer: PersistenceLayer
     @Inject lateinit var prefFileList: FileListProvider
     @Inject lateinit var notificationManager: NotificationManager
-    @Inject lateinit var alarmNotificationManager: AlarmNotificationManager
+    @Inject lateinit var alertPlatform: AndroidAlertPlatform
     @Inject lateinit var dateUtil: DateUtil
     @Inject lateinit var builtInSearchables: BuiltInSearchables
     @Inject lateinit var bolusProgressData: BolusProgressData
@@ -432,6 +435,10 @@ class ComposeMainActivity : MetroAppCompatActivity() {
 
                             effect.group.permissions.contains(PluginPermissionsImpl.PERMISSION_NOTIFICATION_LISTENER)   ->
                                 startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+
+                            // The same page as the setting under Alerts
+                            effect.group.permissions.contains(Manifest.permission.SYSTEM_ALERT_WINDOW)                  ->
+                                openAlarmOverOtherAppsPage(this@ComposeMainActivity)
                         }
 
                     is PermissionsSideEffect.ShowError ->
@@ -460,6 +467,7 @@ class ComposeMainActivity : MetroAppCompatActivity() {
                 items = permState.items,
                 snackbarHostState = permissionsSnackbarHostState,
                 onRequestPermission = { permissionsViewModel.requestPermission(it) },
+                onDecline = { permissionsViewModel.decline(it) },
                 onDismiss = { permissionsViewModel.dismissSheet() }
             )
         }
@@ -477,7 +485,8 @@ class ComposeMainActivity : MetroAppCompatActivity() {
     private fun AppNavHost(navController: NavHostController) {
         NavHost(
             navController = navController,
-            startDestination = AppRoute.Main.route
+            startDestination = AppRoute.Main.route,
+            modifier = Modifier.background(MaterialTheme.colorScheme.background)
         ) {
             appNavGraph(
                 navController = navController,
@@ -509,7 +518,7 @@ class ComposeMainActivity : MetroAppCompatActivity() {
                 visibilityContext = visibilityContext,
                 onNavigationRequest = { request, nc -> handleNavigationRequest(request, nc) },
                 onShowDeliveryError = { comment, title ->
-                    uiInteraction.runAlarm(comment, rh.gs(title), AlarmSound.BOLUS_ERROR)
+                    uiInteraction.runAlarm(UiInteraction.KEY_COMMAND_FAILED, comment, rh.gs(title), AlarmSound.BOLUS_ERROR)
                 },
                 withProtection = { protection, action -> navigator(navController).guarded(protection, action) },
                 requestEditModeAuthorization = { onGranted ->
@@ -585,7 +594,8 @@ class ComposeMainActivity : MetroAppCompatActivity() {
                         },
                         onRecreateActivity = { recreate() },
                         autoShowNotificationSheet = _autoShowNotifications.value && appLock.value == AppLockState.OPEN,
-                        onAutoShowConsumed = { _autoShowNotifications.value = false }
+                        onAutoShowConsumed = { _autoShowNotifications.value = false },
+                        onOpenAlertKinds = { navigator(navController).openAlertKinds() }
                     )
                 },
             )
@@ -621,7 +631,7 @@ class ComposeMainActivity : MetroAppCompatActivity() {
         // its alarm screen again (#5338). In onStart and not in onResume: the alarm screen is
         // translucent, so leaving it with Back resumes this activity without starting it, and the
         // alarm screen does not come straight back.
-        alarmNotificationManager.unansweredAlarmIntent()?.let { startActivity(it) }
+        alertPlatform.unansweredAlarmIntent()?.let { startActivity(it) }
     }
 
     override fun onResume() {
@@ -696,8 +706,7 @@ class ComposeMainActivity : MetroAppCompatActivity() {
         activePlugin = activePlugin,
         protectionCheck = protectionCheck,
         configBuilder = configBuilder,
-        dexcomBoyda = dexcomBoyda,
-        onOpenCgmApp = { packageName -> openCgmApp(packageName) },
+        onOpenCgmApp = { packages -> openCgmApp(packages) },
         onExit = { finish() },
         onRequestDirectoryAccess = {
             try {
@@ -730,13 +739,18 @@ class ComposeMainActivity : MetroAppCompatActivity() {
         navigator(navController).handleSearchResultClick(entry)
     }
 
-    private fun openCgmApp(packageName: String) {
+    /** Opens the first of [packages] that is installed: one app, also when the user has two of them. */
+    private fun openCgmApp(packages: List<String>) {
+        val intent = packages.firstNotNullOfOrNull { packageManager.getLaunchIntentForPackage(it) }
+        if (intent == null) {
+            aapsLogger.debug("No CGM app installed of $packages")
+            return
+        }
         try {
-            val intent = packageManager.getLaunchIntentForPackage(packageName) ?: throw ActivityNotFoundException()
             intent.addCategory(Intent.CATEGORY_LAUNCHER)
             startActivity(intent)
         } catch (_: ActivityNotFoundException) {
-            aapsLogger.debug("Error opening CGM app: $packageName")
+            aapsLogger.debug("Error opening CGM app: ${intent.`package`}")
         }
     }
 

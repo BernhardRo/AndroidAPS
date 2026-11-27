@@ -1,12 +1,14 @@
 package app.aaps.desktop.shell.di
 
 import app.aaps.core.interfaces.configuration.Config
+import app.aaps.core.interfaces.di.ApplicationScope
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.L
 import app.aaps.core.interfaces.notifications.SystemNotificationPlatform
 import app.aaps.core.interfaces.resources.TextResolver
 import app.aaps.core.interfaces.sharedPreferences.KeyValueStore
 import app.aaps.core.interfaces.utils.DateUtil
+import app.aaps.core.interfaces.utils.fabric.FabricPrivacy
 import app.aaps.desktop.shell.appIconResource
 import app.aaps.desktop.shell.config.DesktopClientConfig
 import app.aaps.desktop.shell.loadAwtAppIcon
@@ -16,11 +18,16 @@ import app.aaps.desktop.shell.secure.KeyVault
 import app.aaps.implementation.logging.AAPSLoggerDesktop
 import app.aaps.shared.impl.utils.DateUtilImpl
 import app.aaps.shared.impl.utils.JvmDateFormatPlatform
+import app.aaps.workflow.CalculationExecutor
+import app.aaps.workflow.LazyCalculationExecutor
+import app.aaps.workflow.PostCalculationRunner
+import app.aaps.workflow.PrepareGraphDataRunner
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.BindingContainer
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
+import kotlinx.coroutines.CoroutineScope
 
 /**
  * The bindings the desktop graph needs that only a desktop can supply.
@@ -65,9 +72,29 @@ object DesktopPlatformBindings {
     @SingleIn(AppScope::class)
     fun config(): Config = DesktopClientConfig()
 
+    /**
+     * The calculation executor, deferred so the graph accepts the runner cycle - see
+     * [LazyCalculationExecutor].
+     *
+     * No wake lock: a desktop does not freeze a running app the way a locked phone does.
+     */
     @Provides
     @SingleIn(AppScope::class)
-    fun systemNotificationPlatform(logger: AAPSLogger, config: Config, rh: TextResolver): SystemNotificationPlatform =
+    fun calculationExecutor(
+        @ApplicationScope scope: CoroutineScope,
+        aapsLogger: AAPSLogger,
+        fabricPrivacy: FabricPrivacy,
+        prepare: () -> PrepareGraphDataRunner,
+        post: () -> PostCalculationRunner
+    ): CalculationExecutor = LazyCalculationExecutor(scope, aapsLogger, fabricPrivacy, { prepare() }, { post() }, wakeLock = null)
+
+    /** The tray. The concrete class too, because the alert platform also shows a message and beeps through it. */
+    @Provides
+    @SingleIn(AppScope::class)
+    fun desktopTray(logger: AAPSLogger, config: Config, rh: TextResolver): DesktopSystemNotificationPlatform =
         DesktopSystemNotificationPlatform(logger, rh.gs(config.appName), loadAwtAppIcon(appIconResource(config)))
+
+    @Provides
+    fun systemNotificationPlatform(tray: DesktopSystemNotificationPlatform): SystemNotificationPlatform = tray
 
 }

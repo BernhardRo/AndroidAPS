@@ -11,7 +11,7 @@ import androidx.core.app.NotificationCompat
 import app.aaps.core.interfaces.notifications.NotificationHolder
 import app.aaps.core.interfaces.resources.ResourceHelper
 import app.aaps.core.interfaces.ui.IconsProvider
-import app.aaps.core.interfaces.ui.UiInteraction
+import app.aaps.core.interfaces.ui.AndroidActivities
 import app.aaps.implementation.R
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
@@ -25,7 +25,7 @@ class NotificationHolderImpl(
     private val rh: ResourceHelper,
     private val context: Context,
     private val iconsProvider: IconsProvider,
-    private val uiInteraction: UiInteraction
+    private val androidActivities: AndroidActivities
 ) : NotificationHolder {
 
     override val channelID = "AndroidAPS-Ongoing"
@@ -35,7 +35,16 @@ class NotificationHolderImpl(
         set(value) {
             _notification = value
         }
-        get() = _notification ?: placeholderNotification()
+        get() = _notification ?: placeholder
+
+    /**
+     * Shown until PersistentNotificationPlugin has the real one. Each service that starts in the foreground reads it in
+     * Service.onCreate, on the main thread, while the app is starting, and some read it twice (a log line and
+     * startForeground). It was built anew at each read: the channel created again, the icon decoded again and the
+     * notification posted again, binder calls on the main thread, and the app did not answer (ANR, Crashlytics
+     * 2026-11). Now it is built once, and startForeground posts it.
+     */
+    private val placeholder: Notification by lazy { placeholderNotification() }
 
     /**
      * The same intent the launcher icon sends, so a tap brings a minimized AAPS back as it is.
@@ -46,7 +55,7 @@ class NotificationHolderImpl(
         PendingIntent.getActivity(
             context,
             0,
-            Intent(context, uiInteraction.mainActivity.java)
+            Intent(context, androidActivities.main.java)
                 .setAction(Intent.ACTION_MAIN)
                 .addCategory(Intent.CATEGORY_LAUNCHER)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED),
@@ -66,9 +75,6 @@ class NotificationHolderImpl(
             .setContentTitle(rh.gs(app.aaps.core.ui.R.string.loading))
             .setContentIntent(openAppIntent())
             .build()
-            .also {
-                (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(notificationID, it)
-            }
     }
 
     override fun createNotificationChannel() {

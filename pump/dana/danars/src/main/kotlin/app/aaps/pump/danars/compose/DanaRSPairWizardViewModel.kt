@@ -10,6 +10,7 @@ import app.aaps.core.interfaces.di.ApplicationScope
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.pump.PumpSync
+import app.aaps.core.interfaces.pump.ble.BleCentral
 import app.aaps.core.interfaces.pump.ble.BleTransport
 import app.aaps.core.interfaces.pump.ble.BondState
 import app.aaps.core.interfaces.pump.ble.PairingState
@@ -18,6 +19,7 @@ import app.aaps.core.interfaces.pump.ble.ScannedDevice
 import app.aaps.core.interfaces.queue.CommandQueue
 import app.aaps.core.interfaces.resources.ResourceHelper
 import app.aaps.core.keys.interfaces.Preferences
+import app.aaps.core.ui.compose.pump.WizardScan
 import app.aaps.core.utils.hexStringToByteArray
 import app.aaps.pump.dana.keys.DanaStringComposedKey
 import app.aaps.pump.dana.keys.DanaStringNonKey
@@ -80,7 +82,8 @@ class DanaRSPairWizardViewModel(
     private val config: Config,
     private val pumpSync: PumpSync,
     private val commandQueue: CommandQueue,
-    @ApplicationScope private val appScope: CoroutineScope
+    @ApplicationScope private val appScope: CoroutineScope,
+    bleCentral: BleCentral
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PairWizardUiState())
@@ -89,6 +92,16 @@ class DanaRSPairWizardViewModel(
     private val _events = MutableSharedFlow<PairWizardEvent>(extraBufferCapacity = 5)
     val events: SharedFlow<PairWizardEvent> = _events
 
+    private val scan = WizardScan(
+        scope = viewModelScope,
+        adapterState = bleCentral.adapterState,
+        onStart = { bleTransport.scanner.startScan() },
+        onStop = { bleTransport.scanner.stopScan() }
+    )
+
+    /** Whether the scan runs, and why it found nothing when it has ended */
+    val scanState: StateFlow<WizardScan.State> = scan.state
+
     companion object {
 
         private const val PAIRING_TIMEOUT_MS = 20_000L
@@ -96,6 +109,9 @@ class DanaRSPairWizardViewModel(
         // The user must read the PIN on the pump and type it into the Android dialog
         private const val BOND_TIMEOUT_MS = 60_000L
         private const val BOND_POLL_MS = 500L
+
+        // Android removes a bond in well under a second
+        private const val BOND_REMOVE_TIMEOUT_MS = 5_000L
     }
 
     private val snPattern = Pattern.compile("^([a-zA-Z]{3})([0-9]{5})([a-zA-Z]{2})$")
@@ -142,12 +158,10 @@ class DanaRSPairWizardViewModel(
     fun startScan() {
         aapsLogger.debug(LTag.PUMP, "PairWizard: startScan()")
         _uiState.update { it.copy(devices = emptyList(), step = WizardStep.BLE_SCAN) }
-        bleTransport.scanner.startScan()
+        scan.start()
     }
 
-    fun stopScan() {
-        bleTransport.scanner.stopScan()
-    }
+    fun stopScan() = scan.stop()
 
     fun selectDevice(device: ScannedDevice) {
         stopScan()
@@ -160,25 +174,55 @@ class DanaRSPairWizardViewModel(
         // Ensure no stale connection/queue interferes with pairing
         commandQueue.clear()
 
-        // Connect directly via BLEComm, bypassing the command queue.
-        bondAndConnect(device.address, "PairWizard")
+        // Connect directly via BLEComm, bypassing the command queue. A new pairing starts from a new bond.
+        bondAndConnect(device.address, "PairWizard", freshBond = true)
+    }
+
+    private fun bondAndConnect(address: String, from: String, freshBond: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) { connectWhenBonded(address, from, freshBond) }
     }
 
     /**
      * Connects only when the Android bond is complete. Dana-i BLE5 and Dana-i2 accept only an
      * encrypted link (LE Secure). They silently ignore the pump check if it is sent while bonding
      * is still running, and the wizard then ends in a pairing timeout.
+     *
+     * @param freshBond first remove a bond the phone still has with this pump, see [removeOldBond]
      */
-    private fun bondAndConnect(address: String, from: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            if (!awaitBond(address)) {
-                if (_uiState.value.step == WizardStep.PAIRING_PROGRESS)
-                    _uiState.update { it.copy(step = WizardStep.ERROR, errorMessage = rh.gs(app.aaps.pump.dana.R.string.danars_bonding_failed)) }
-                return@launch
-            }
+    internal suspend fun connectWhenBonded(address: String, from: String, freshBond: Boolean) {
+        if (freshBond) removeOldBond(address)
+        if (!awaitBond(address)) {
             if (_uiState.value.step == WizardStep.PAIRING_PROGRESS)
-                bleComm.connect(from, address)
+                _uiState.update { it.copy(step = WizardStep.ERROR, errorMessage = rh.gs(app.aaps.pump.dana.R.string.danars_bonding_failed)) }
+            return
         }
+        if (_uiState.value.step == WizardStep.PAIRING_PROGRESS)
+            bleComm.connect(from, address)
+    }
+
+    /**
+     * Removes a bond the phone still has with the selected pump from an earlier pairing, and waits until it is gone,
+     * so that [awaitBond] makes a new one.
+     *
+     * A connection only asks for a bond when the phone has none. A pump that no longer has its half of an old bond
+     * (an unpair on the pump, or a pairing with another phone) dropped the link right after each pump check, so the
+     * wizard could never pair it: seen on a Dana-i, four tries 0.35 s each (2026-11-19). The unpair in AAPS removes
+     * the bond only of the pump that is set up at that time.
+     *
+     * A transport that cannot remove the bond keeps it after [BOND_REMOVE_TIMEOUT_MS], and the pairing goes on with it.
+     */
+    internal suspend fun removeOldBond(address: String) {
+        val adapter = bleTransport.adapter
+        if (adapter.bondState(address) == BondState.NONE) return
+        aapsLogger.debug(LTag.PUMP, "PairWizard: removing the old bond of the selected pump")
+        adapter.removeBond(address)
+        var waited = 0L
+        while (adapter.bondState(address) != BondState.NONE && waited < BOND_REMOVE_TIMEOUT_MS) {
+            delay(BOND_POLL_MS)
+            waited += BOND_POLL_MS
+        }
+        if (adapter.bondState(address) != BondState.NONE)
+            aapsLogger.warn(LTag.PUMP, "PairWizard: the old bond is still there after ${waited}ms, pairing with it")
     }
 
     /**

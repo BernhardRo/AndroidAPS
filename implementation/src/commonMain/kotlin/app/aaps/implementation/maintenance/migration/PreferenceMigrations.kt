@@ -7,6 +7,9 @@ import app.aaps.core.data.model.TTPreset
 import app.aaps.core.data.ue.Action
 import app.aaps.core.data.ue.Sources
 import app.aaps.core.data.ue.ValueWithUnit
+import app.aaps.core.interfaces.alerts.AlertChoice
+import app.aaps.core.interfaces.alerts.BgAlert
+import app.aaps.core.interfaces.alerts.CoreAlert
 import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.db.PersistenceLayer
 import app.aaps.core.interfaces.logging.AAPSLogger
@@ -24,13 +27,17 @@ import app.aaps.core.keys.StringKey
 import app.aaps.core.keys.StringNonKey
 import app.aaps.core.keys.UnitDoubleKey
 import dev.zacsweers.metro.Inject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 
 /**
  * The preference migrations, as an ordered list of functions over the store they are given.
  *
  * ## Why they take the store
  *
- * These used to be the body of `MainApp.doMigrations()` and ran only against the live store on start
+ * These used to be the body of `MainApp.doMigrations()` (now `AppStartSequence.migratePreferences()`) and ran only against the live store on start
  * up. That was enough while an import wrote every name from the file into the store raw, because the
  * next start then converted them. It is not enough now: `PreferenceImportApplier` resolves each name
  * from the file and drops the ones it does not know, so an old backup's names never reach the store
@@ -83,7 +90,7 @@ import dev.zacsweers.metro.Inject
  *   the old keys when they are present; `MainApp` still creates three factory presets when they are
  *   not, which is new-install bootstrap and would write invented presets over a user's real ones.
  * - the insulin label and peak derivation, and the `LocalProfile_<n>_name` / `_dia` harvest. Both fill
- *   `MainApp` fields that `dataMigrations()` consumes much later, so they are about this app's
+ *   `AppStartSequence` fields that `migrateRecords()` consumes much later, so they are about this app's
  *   start-up sequence rather than about the store. Neither is needed on an import: there is no
  *   database import in AAPS, so a fresh install plus import has no legacy rows to stamp.
  */
@@ -118,6 +125,70 @@ class PreferenceMigrations(
         tempTargetPresets(sp)
         activityMonitorRetired(sp)
         smsCommunicatorType(sp)
+        carbsRequiredAlert(sp)
+        missedBgReadingsAlert(sp)
+        hardLimitAlertRetired(sp)
+    }
+
+    /**
+     * The alert kind "Hard limit" became a card (2026-11-26, `HardLimitsImpl`): a choice or sound stored for it is for
+     * nothing now, and a choice that was not Ring would count as silent or off for ever with no row to change it.
+     */
+    private fun hardLimitAlertRetired(sp: KeyValueStore) {
+        listOf(ALERT_CHOICES, ALERT_SOUNDS).forEach { name ->
+            val stored = try {
+                Json.parseToJsonElement(sp.getString(name, "{}")).jsonObject
+            } catch (_: Exception) {
+                // Not this migration's to repair: the alert core replaces an unreadable list itself
+                return@forEach
+            }
+            if (HARD_LIMIT_ALERT in stored) sp.putString(name, JsonObject(stored - HARD_LIMIT_ALERT).toString())
+        }
+    }
+
+    /**
+     * "Alert if no BG data is received" became the choice of the alert kind "Missed BG readings" (2026-11-26, the BG
+     * alarms screen). The kind is Off unless chosen otherwise, as the switch was. A phone that had it off ends with the
+     * kind Off: a choice of the kind it had is dropped, as it did nothing then. A phone that had it on rings: its own
+     * choice of the kind stays, else Ring is stored. The old key goes either way.
+     */
+    private fun missedBgReadingsAlert(sp: KeyValueStore) {
+        if (!sp.contains(MISSED_BG_READINGS_ALERT)) return
+        val on = LegacyPreferenceValue.asBoolean(sp.getAll()[MISSED_BG_READINGS_ALERT]) == true
+        val choices = try {
+            Json.parseToJsonElement(sp.getString(ALERT_CHOICES, "{}")).jsonObject
+        } catch (_: Exception) {
+            // An unreadable list rings every kind (`AlertsImpl`), so it is replaced rather than kept
+            JsonObject(emptyMap())
+        }
+        val stale = BgAlert.STALE.id
+        val updated = when {
+            on && stale !in choices -> choices + (stale to JsonPrimitive(AlertChoice.RING.name))
+            // A choice of the kind other than Off did nothing while the switch was off: it would ring now
+            !on && stale in choices -> choices - stale
+            else                    -> null
+        }
+        if (updated != null) sp.putString(ALERT_CHOICES, JsonObject(updated).toString())
+        sp.remove(MISSED_BG_READINGS_ALERT)
+    }
+
+    /**
+     * "Alert on carbs required" became the choice of the alert kind "Carbs required" (2026-11-24, `_docs/ALARMS.md`,
+     * step 6). A phone that had it off gets the kind set to Off, so nothing starts to chime there. On was the default,
+     * and Ring is the kind's default, so that needs nothing. The old key goes either way.
+     */
+    private fun carbsRequiredAlert(sp: KeyValueStore) {
+        if (!sp.contains(CARBS_REQUIRED_ALERT)) return
+        if (LegacyPreferenceValue.asBoolean(sp.getAll()[CARBS_REQUIRED_ALERT]) == false) {
+            val choices = try {
+                Json.parseToJsonElement(sp.getString(ALERT_CHOICES, "{}")).jsonObject
+            } catch (_: Exception) {
+                // An unreadable list rings every kind (`AlertsImpl`), so it is replaced rather than kept
+                JsonObject(emptyMap())
+            }
+            sp.putString(ALERT_CHOICES, JsonObject(choices + (CoreAlert.CARBS_REQUIRED.id to JsonPrimitive(AlertChoice.OFF.name))).toString())
+        }
+        sp.remove(CARBS_REQUIRED_ALERT)
     }
 
     /**
@@ -351,7 +422,7 @@ class PreferenceMigrations(
      * the insulin sensitivity, carb ratio, basal and target schedules.
      *
      * The raw `_name` key is written across but NOT removed. `MainApp` still reads it with `_dia` to
-     * build the name-to-DIA map `dataMigrations()` needs; removing it here would strand those values
+     * build the name-to-DIA map `AppStartSequence.migrateRecords()` needs; removing it here would strand those values
      * and stamp historical records with a substituted insulin.
      *
      * The index is parsed strictly. `SafeParse.stringToInt`, which the old version used, answers 0 for
@@ -519,6 +590,17 @@ class PreferenceMigrations(
         )
 
         val TEMP_TARGET_PRESETS = StringNonKey.TempTargetPresets.key
+
+        /** The key of "Alert on carbs required", which the kind "Carbs required" replaced. */
+        const val CARBS_REQUIRED_ALERT = "enable_carbs_required_alert_local"
+
+        /** The key of "Alert if no BG data is received", which the choice of the kind "Missed BG readings" replaced. */
+        const val MISSED_BG_READINGS_ALERT = "enable_missed_bg_readings"
+
+        /** The id of the alert kind "Hard limit", which became a card. */
+        const val HARD_LIMIT_ALERT = "aaps.hard_limit"
+        val ALERT_CHOICES = StringNonKey.AlertChoices.key
+        val ALERT_SOUNDS = StringNonKey.AlertSounds.key
 
         /** The three counters the activity monitor kept for each activity. */
         val MONITOR_COUNTERS = listOf("start", "resumed", "total")

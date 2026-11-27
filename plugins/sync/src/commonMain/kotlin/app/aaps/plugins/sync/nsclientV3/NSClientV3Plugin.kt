@@ -16,7 +16,6 @@ import app.aaps.core.interfaces.logging.L
 import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.logging.UserEntryLogger
 import app.aaps.core.interfaces.notifications.NotificationManager
-import app.aaps.core.interfaces.nsclient.NSAlarm
 import app.aaps.core.interfaces.nsclient.NSClientRepository
 import app.aaps.core.interfaces.nsclient.StoreDataForDb
 import app.aaps.core.interfaces.plugin.PluginBase
@@ -121,8 +120,15 @@ import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import dev.zacsweers.metro.IntKey as MetroIntKey
 
+/**
+ * The Nightscout address as the setting holds it, without spaces. An address never holds a space, but a phone keyboard
+ * easily adds one, often at the end. Ktor throws on a host with a space in it, and that crashed the app (Crashlytics,
+ * 2026-11).
+ */
+internal fun nsClientUrlWithoutSpaces(url: String): String = url.filterNot { it.isWhitespace() }
+
 /** The Nightscout address as the setting holds it, in the form `NSAndroidClientImpl` takes: no scheme, no last slash. */
-internal fun nsClientBaseUrl(url: String): String = url.lowercase().replace("https://", "").replace(Regex("/$"), "")
+internal fun nsClientBaseUrl(url: String): String = nsClientUrlWithoutSpaces(url).lowercase().replace("https://", "").replace(Regex("/$"), "")
 
 // The new atomics are still experimental; pendingLoop/pendingUpload use load/store/compareAndSet.
 @OptIn(ExperimentalAtomicApi::class)
@@ -358,8 +364,6 @@ class NSClientV3Plugin(
         // client-control commands sent during the reconnect.
         preferences.observeEffective(BooleanKey.NsClient3UseWs).drop(1).collectResilient(scope, aapsLogger, LTag.NSCLIENT, block = restartOnChange)
         preferences.observe(NsclientBooleanKey.NsPaused).drop(1).collectResilient(scope, aapsLogger, LTag.NSCLIENT, block = restartOnChange)
-        preferences.observe(BooleanKey.NsClientNotificationsFromAlarms).drop(1).collectResilient(scope, aapsLogger, LTag.NSCLIENT, block = restartOnChange)
-        preferences.observe(BooleanKey.NsClientNotificationsFromAnnouncements).drop(1).collectResilient(scope, aapsLogger, LTag.NSCLIENT, block = restartOnChange)
         preferences.observe(LongNonKey.LocalProfileLastChange).drop(1)
             .collectResilient(scope, aapsLogger, LTag.NSCLIENT) { executeUpload("PROFILE_CHANGE") }
         persistenceLayer.observeAnyChange()
@@ -749,14 +753,6 @@ class NSClientV3Plugin(
         fullSyncRequested.store(true)
     }
 
-    override fun handleClearAlarm(originalAlarm: NSAlarm, silenceTimeInMilliseconds: Long) {
-        if (!isEnabled()) return
-        if (!preferences.get(BooleanKey.NsClientUploadData)) {
-            aapsLogger.debug(LTag.NSCLIENT, "Upload disabled. Message dropped")
-            return
-        }
-        nsConnection.acknowledgeAlarm(originalAlarm, silenceTimeInMilliseconds)
-    }
 
     // --- Bounded retry for transient NS UPDATE failures ---
     // A 404 on an UPDATE previously fell through to `return true`, advancing the per-collection sync
@@ -1283,7 +1279,6 @@ class NSClientV3Plugin(
                 key = "ns_client_alarm_options",
                 title = SyncStrings.ns_alarm_options,
                 items = listOf(
-                    BooleanKey.NsClientNotificationsFromAlarms,
                     BooleanKey.NsClientNotificationsFromAnnouncements,
                     IntKey.NsClientAlarmStaleData,
                     IntKey.NsClientUrgentAlarmStaleData

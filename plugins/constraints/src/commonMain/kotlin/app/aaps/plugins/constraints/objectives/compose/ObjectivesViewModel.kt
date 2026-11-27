@@ -12,6 +12,7 @@ import app.aaps.core.interfaces.receivers.ReceiverStatusStore
 import app.aaps.core.interfaces.resources.TextResolver
 import app.aaps.core.interfaces.rx.bus.RxBus
 import app.aaps.core.interfaces.rx.events.EventSWUpdate
+import app.aaps.core.interfaces.rx.events.EventShowSnackbar
 import app.aaps.core.interfaces.utils.DateUtil
 import app.aaps.core.keys.BooleanNonKey
 import app.aaps.core.keys.interfaces.Preferences
@@ -28,6 +29,7 @@ import dev.zacsweers.metro.ContributesIntoMap
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.binding
 import dev.zacsweers.metrox.viewmodel.ViewModelKey
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,13 +71,17 @@ class ObjectivesViewModel(
     private val _scrollToIndex = MutableStateFlow(-1)
     val scrollToIndex: StateFlow<Int> = _scrollToIndex.asStateFlow()
 
-    /** Snackbar message to show */
-    private val _snackbarMessage = MutableStateFlow<String?>(null)
-    val snackbarMessage: StateFlow<String?> = _snackbarMessage.asStateFlow()
-
-    fun onSnackbarShown() {
-        _snackbarMessage.value = null
-    }
+    /**
+     * Where the screen's state is built: off the main thread. A test sets its own dispatcher, or the work outlives the
+     * test on a real thread, reads mocks that are already cleared and fails an unrelated test in the module
+     * (`UncaughtExceptionsBeforeTest` in `StorageConstraintPluginTest` on CI, 2026-11-21 and 2026-11-24).
+     *
+     * Declared before `init`, because `init` starts the first update. A screen builds this view model on the main
+     * thread, where `viewModelScope` runs a new coroutine at once, so the update ran inside the constructor. Declared
+     * after `init`, this was still null then, and the screen crashed with a NullPointerException (Crashlytics,
+     * 2026-11).
+     */
+    internal var computeDispatcher: CoroutineDispatcher = Dispatchers.Default
 
     init {
         rxBus.toFlow(EventObjectivesUpdateGui::class)
@@ -112,7 +118,7 @@ class ObjectivesViewModel(
         }
     }
 
-    private suspend fun updateState() = withContext(Dispatchers.Default) {
+    private suspend fun updateState() = withContext(computeDispatcher) {
         val objectives = objectivesPlugin.objectives.mapIndexed { index, objective ->
             val tasks = objective.tasks
                 .filter { !it.shouldBeIgnored() }
@@ -192,7 +198,7 @@ class ObjectivesViewModel(
             scope.launch {
                 val result = ntpVerify()
                 if (!result.networkConnected) {
-                    showNtpError(rh.gs(ConstraintsStrings.notconnected))
+                    showNtpError(rh.gs(ConstraintsStrings.notconnected), EventShowSnackbar.Type.Warning)
                 } else if (result.success) {
                     objective.startedOn = result.time
                     showNtpSuccess()
@@ -200,7 +206,7 @@ class ObjectivesViewModel(
                     scrollToCurrentObjective()
                     rxBus.send(EventSWUpdate(false))
                 } else {
-                    showNtpError(rh.gs(ConstraintsStrings.failedretrievetime))
+                    showNtpError(rh.gs(ConstraintsStrings.failedretrievetime), EventShowSnackbar.Type.Error)
                 }
             }
         }
@@ -222,7 +228,7 @@ class ObjectivesViewModel(
             scope.launch {
                 val result = ntpVerify()
                 if (!result.networkConnected) {
-                    showNtpError(rh.gs(ConstraintsStrings.notconnected))
+                    showNtpError(rh.gs(ConstraintsStrings.notconnected), EventShowSnackbar.Type.Warning)
                 } else if (result.success) {
                     if (objective.isCompleted(result.time)) {
                         showNtpSuccess()
@@ -232,10 +238,10 @@ class ObjectivesViewModel(
                         scrollToCurrentObjective()
                         rxBus.send(EventSWUpdate(false))
                     } else {
-                        showNtpError(rh.gs(ConstraintsStrings.requirementnotmet))
+                        showNtpError(rh.gs(ConstraintsStrings.requirementnotmet), EventShowSnackbar.Type.Warning)
                     }
                 } else {
-                    showNtpError(rh.gs(ConstraintsStrings.failedretrievetime))
+                    showNtpError(rh.gs(ConstraintsStrings.failedretrievetime), EventShowSnackbar.Type.Error)
                 }
             }
         }
@@ -262,9 +268,24 @@ class ObjectivesViewModel(
         _uiState.value = _uiState.value.copy(ntpVerification = null)
     }
 
-    private fun showNtpError(message: String) {
+    /** Closes the progress dialog first, so the message is not hidden behind it. */
+    private fun showNtpError(message: String, type: EventShowSnackbar.Type) {
         _uiState.value = _uiState.value.copy(ntpVerification = null)
-        _snackbarMessage.value = message
+        showMessage(message, type)
+    }
+
+    /**
+     * Shows [message] in the app-wide snackbar, not in one of this screen's own.
+     *
+     * Users said a failed time check on Android was silent. The screen used to show its messages
+     * itself, as a short info snackbar: 4 s, after up to 5 s of waiting for the time server, and gone
+     * as soon as the user left the screen. The app-wide host keeps a warning or an error on screen for
+     * 10 s, in its own colour, on whatever screen the user is on, and turns it into a notification
+     * when the app is in the background. It also shows the same message only once while it is waiting,
+     * so tapping Start again does not stack them.
+     */
+    private fun showMessage(message: String, type: EventShowSnackbar.Type) {
+        rxBus.send(EventShowSnackbar(message, type))
     }
 
     fun onRequestUnstart(objectiveIndex: Int) {
@@ -379,7 +400,7 @@ class ObjectivesViewModel(
         task.answered = allCorrect
         if (!allCorrect) {
             task.disabledTo = dateUtil.now() + T.hours(1).msecs()
-            _snackbarMessage.value = rh.gs(ConstraintsStrings.wronganswer)
+            showMessage(rh.gs(ConstraintsStrings.wronganswer), EventShowSnackbar.Type.Warning)
         } else {
             task.disabledTo = 0
         }
@@ -440,7 +461,7 @@ class ObjectivesViewModel(
         val visibleTasks = objective.tasks.filter { !it.shouldBeIgnored() }
         val task = visibleTasks[taskIndex] as? UITask ?: return
         task.code.invoke(task, { scope.launch { updateState() } }) { message ->
-            _snackbarMessage.value = message
+            showMessage(message, EventShowSnackbar.Type.Warning)
         }
     }
 

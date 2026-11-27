@@ -32,6 +32,7 @@ import app.aaps.core.ui.compose.icons.Pump
 import app.aaps.core.ui.compose.preference.PreferenceSubScreenDef
 import app.aaps.core.ui.search.SearchableItem
 import app.aaps.core.ui.search.SearchableProvider
+import app.aaps.ui.compose.alertKinds.AlertKindsSettings
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
@@ -54,7 +55,9 @@ class BuiltInSearchables(
     private val rh: TextResolver,
     private val insulinManager: InsulinManager,
     private val profileFunction: ProfileFunction,
-    private val config: Config
+    private val config: Config,
+    /** The alert kinds: the settings item, and the choices for the line in the notification sheet. */
+    val alertKindsSettings: AlertKindsSettings
 ) : SearchableProvider {
 
     // Decides whether concentration-related preferences are worth surfacing in search, so an unknown
@@ -177,21 +180,23 @@ class BuiltInSearchables(
     )
 
     /**
-     * Alerts preferences (missed BG, pump unreachable, etc.)
+     * The alerts: Alert kinds with the BG alarms, pump unreachable, and how alarms ring. Shown right after Safety
+     * (decided 2026-11-26): alerts are a matter of safety, and at the end of the list they were missed. Its key stays
+     * "alerts": the alert kinds are opened by it.
      */
     val alerts = PreferenceSubScreenDef(
         key = "alerts",
-        title = CoreUiStrings.localalertsettings_title,
-        items = listOf(
-            BooleanKey.AlertMissedBgReading,
-            IntKey.AlertsStaleDataThreshold,
+        title = CoreUiStrings.alerts_settings_title,
+        // First how each alert rings, with the BG alarms and their rules, the urgent low threshold and the missed
+        // readings (decided 2026-11-26: when an alarm rings is set next to how it rings): the main entry, and so the
+        // start of the category's summary
+        items = listOfNotNull(alertKindsSettings.settingsItem) + listOf(
             BooleanKey.AlertPumpUnreachable,
             IntKey.AlertsPumpUnreachableThreshold,
-            BooleanKey.AlertCarbsRequired,
             BooleanKey.AlertUrgentAsAndroidNotification,
             BooleanKey.AlertIncreaseVolume,
             BooleanKey.AlertOverrideDoNotDisturb
-        ),
+        ) + alertKindsSettings.platformItems,
         icon = Icons.Default.Notifications
     )
 
